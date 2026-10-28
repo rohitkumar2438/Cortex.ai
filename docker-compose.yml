@@ -1,26 +1,155 @@
 version: '3.8'
 
 services:
-  # Shared In-Memory Cache & Session Store
+  # 1. MongoDB Database
+  mongo:
+    image: mongo:7.0
+    container_name: cortex-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_DATABASE=cortex
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - cortex-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 2. Redis Cache & Session Store
   redis:
-    image: redis:alpine
+    image: redis:7-alpine
     container_name: cortex-redis
+    restart: unless-stopped
     ports:
       - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - cortex-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 3. Auth Microservice
+  auth:
+    build:
+      context: .
+      dockerfile: backend/services/auth/Dockerfile
+    container_name: cortex-auth
     restart: unless-stopped
+    ports:
+      - "8001:8001"
+    environment:
+      - PORT=8001
+      - NODE_ENV=production
+      - MONGO_URI=mongodb://mongo:27017/cortex
+      - REDIS_URL=redis://redis:6379
+      - FIREBASE_SERVICE_ACCOUNT_KEY=${FIREBASE_SERVICE_ACCOUNT_KEY}
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - cortex-network
 
-  # Gateway (Reverse Proxy & Session Resolution)
+  # 4. Chat Microservice
+  chat:
+    build:
+      context: .
+      dockerfile: backend/services/chat/Dockerfile
+    container_name: cortex-chat
+    restart: unless-stopped
+    ports:
+      - "8002:8002"
+    environment:
+      - PORT=8002
+      - NODE_ENV=production
+      - MONGO_URI=mongodb://mongo:27017/cortex
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - cortex-network
+
+  # 5. Agent Orchestration Microservice (LangGraph + RAG)
+  agent:
+    build:
+      context: .
+      dockerfile: backend/services/agent/Dockerfile
+    container_name: cortex-agent
+    restart: unless-stopped
+    ports:
+      - "8003:8003"
+    environment:
+      - PORT=8003
+      - NODE_ENV=production
+      - CHAT_SERVICE_URL=http://chat:8002
+      - BILLING_SERVICE_URL=http://billing:8004
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - TAVILY_API_KEY=${TAVILY_API_KEY}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - PINECONE_API_KEY=${PINECONE_API_KEY}
+      - PINECONE_INDEX=${PINECONE_INDEX:-cortex-ai}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - AWS_S3_BUCKET=${AWS_S3_BUCKET}
+    volumes:
+      - agent-uploads:/app/backend/services/agent/uploads
+    depends_on:
+      - chat
+      - billing
+    networks:
+      - cortex-network
+
+  # 6. Billing & Razorpay Microservice
+  billing:
+    build:
+      context: .
+      dockerfile: backend/services/billing/Dockerfile
+    container_name: cortex-billing
+    restart: unless-stopped
+    ports:
+      - "8004:8004"
+    environment:
+      - PORT=8004
+      - NODE_ENV=production
+      - MONGO_URI=mongodb://mongo:27017/cortex
+      - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID}
+      - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET}
+      - RAZORPAY_WEBHOOK_SECRET=${RAZORPAY_WEBHOOK_SECRET}
+      - AUTH_SERVICE_URL=http://auth:8001
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks:
+      - cortex-network
+
+  # 7. Central API Gateway (Reverse Proxy)
   gateway:
     build:
-      context: ./backend/gateway
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/gateway/Dockerfile
     container_name: cortex-gateway
+    restart: unless-stopped
     ports:
       - "8000:8000"
     environment:
       - PORT=8000
+      - NODE_ENV=production
       - AUTH_SERVICE_URL=http://auth:8001
       - CHAT_SERVICE_URL=http://chat:8002
       - AGENT_SERVICE_URL=http://agent:8003
@@ -28,87 +157,42 @@ services:
       - REDIS_URL=redis://redis:6379
       - CLIENT_URL=http://localhost:5173
     depends_on:
-      - redis
-      - auth
-      - chat
-      - agent
-      - billing
+      redis:
+        condition: service_healthy
+      auth:
+        condition: service_started
+      chat:
+        condition: service_started
+      agent:
+        condition: service_started
+      billing:
+        condition: service_started
     networks:
       - cortex-network
 
-  # Auth Service
-  auth:
+  # 8. Web Frontend (Vite + Nginx Production Container)
+  frontend:
     build:
-      context: ./backend/services/auth
-      dockerfile: Dockerfile
-    container_name: cortex-auth
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        - VITE_API_URL=http://localhost:8000
+    container_name: cortex-frontend
+    restart: unless-stopped
     ports:
-      - "8001:8001"
-    environment:
-      - PORT=8001
-      - MONGODB_URI=${MONGODB_URI}
-      - REDIS_URL=redis://redis:6379
+      - "5173:80"
     depends_on:
-      - redis
+      - gateway
     networks:
       - cortex-network
 
-  # Chat Service
-  chat:
-    build:
-      context: ./backend/services/chat
-      dockerfile: Dockerfile
-    container_name: cortex-chat
-    ports:
-      - "8002:8002"
-    environment:
-      - PORT=8002
-      - MONGODB_URI=${MONGODB_URI}
-      - REDIS_URL=redis://redis:6379
-    depends_on:
-      - redis
-    networks:
-      - cortex-network
-
-  # Agent Service (LangGraph Orchestration)
-  agent:
-    build:
-      context: ./backend/services/agent
-      dockerfile: Dockerfile
-    container_name: cortex-agent
-    ports:
-      - "8003:8003"
-    environment:
-      - PORT=8003
-      - GROQ_API_KEY=${GROQ_API_KEY}
-      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
-      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
-      - TAVILY_API_KEY=${TAVILY_API_KEY}
-      - QDRANT_URL=${QDRANT_URL}
-      - QDRANT_API_KEY=${QDRANT_API_KEY}
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-      - AWS_REGION=${AWS_REGION:-us-east-1}
-      - AWS_S3_BUCKET=${AWS_S3_BUCKET}
-      - BILLING_SERVICE_URL=http://billing:8004
-    networks:
-      - cortex-network
-
-  # Billing Service
-  billing:
-    build:
-      context: ./backend/services/billing
-      dockerfile: Dockerfile
-    container_name: cortex-billing
-    ports:
-      - "8004:8004"
-    environment:
-      - PORT=8004
-      - MONGODB_URI=${MONGODB_URI}
-      - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID}
-      - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET}
-    networks:
-      - cortex-network
+volumes:
+  mongo-data:
+    driver: local
+  redis-data:
+    driver: local
+  agent-uploads:
+    driver: local
 
 networks:
   cortex-network:

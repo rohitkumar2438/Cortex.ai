@@ -2,10 +2,18 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-COPY package*.json ./
+# Copy shared utilities
+COPY backend/shared ./backend/shared
+
+# Copy agent service files
+COPY backend/services/agent/package*.json ./backend/services/agent/
+WORKDIR /app/backend/services/agent
 RUN npm install --omit=dev
 
-COPY . .
+COPY backend/services/agent ./
+
+# Create uploads directory for locally stored generated artifacts
+RUN mkdir -p uploads
 
 EXPOSE 8003
 

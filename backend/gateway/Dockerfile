@@ -2,10 +2,15 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-COPY package*.json ./
+# Copy shared utilities
+COPY backend/shared ./backend/shared
+
+# Copy gateway service files
+COPY backend/gateway/package*.json ./backend/gateway/
+WORKDIR /app/backend/gateway
 RUN npm install --omit=dev
 
-COPY . .
+COPY backend/gateway ./
 
 EXPOSE 8000
 

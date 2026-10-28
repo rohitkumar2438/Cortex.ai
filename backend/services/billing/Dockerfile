@@ -2,10 +2,15 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-COPY package*.json ./
+# Copy shared utilities
+COPY backend/shared ./backend/shared
+
+# Copy billing service files
+COPY backend/services/billing/package*.json ./backend/services/billing/
+WORKDIR /app/backend/services/billing
 RUN npm install --omit=dev
 
-COPY . .
+COPY backend/services/billing ./
 
 EXPOSE 8004
 
