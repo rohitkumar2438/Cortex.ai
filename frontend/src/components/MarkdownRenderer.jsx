@@ -57,6 +57,13 @@ export const MarkdownRenderer = ({ content, images = [] }) => {
                     },
                     h3({ children }) {
                         return <h3 className="text-lg font-medium text-indigo-200 mt-4 mb-2">{children}</h3>;
+                    },
+                    blockquote({ children }) {
+                        return (
+                            <blockquote className="my-3 pl-4 pr-3 py-2 border-l-4 border-indigo-500 bg-indigo-950/40 rounded-r-xl text-indigo-100 text-xs shadow-sm">
+                                {children}
+                            </blockquote>
+                        );
                     }
                 }}
             >

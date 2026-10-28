@@ -30,7 +30,10 @@ import {
     FileText,
     Presentation,
     Image as ImageIcon,
-    Coins
+    Coins,
+    Paperclip,
+    CheckCircle2,
+    X
 } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -44,13 +47,33 @@ export const ChatDashboard = () => {
     const [inputPrompt, setInputPrompt] = useState('');
     const [activeArtifact, setActiveArtifact] = useState(null);
     const [isBillingOpen, setIsBillingOpen] = useState(false);
+    const [uploadedDocs, setUploadedDocs] = useState([]);
+    const [isUploadingDoc, setIsUploadingDoc] = useState(false);
     const messagesEndRef = useRef(null);
     const inputRef = useRef(null);
+    const fileInputRef = useRef(null);
 
     // Initial load: fetch conversations
     useEffect(() => {
         dispatch(fetchConversations());
     }, [dispatch]);
+
+    // Fetch uploaded knowledge documents for the active conversation
+    useEffect(() => {
+        const currentConvId = activeConversationId || 'default';
+        const userId = user?.userId || user?.firebaseUid || user?.uid || '';
+
+        fetch(`${API_BASE}/agent/rag/documents?conversationId=${currentConvId}`, {
+            headers: { 'x-user-id': userId }
+        })
+            .then(res => res.json())
+            .then(data => {
+                if (data.documents && Array.isArray(data.documents)) {
+                    setUploadedDocs(data.documents);
+                }
+            })
+            .catch(() => {});
+    }, [activeConversationId, user?.userId]);
 
     // When active conversation changes, check if the latest message has an artifact to restore
     useEffect(() => {
@@ -143,7 +166,7 @@ export const ChatDashboard = () => {
                                 // "Thinking" -> "Reasoning" -> "Generating"
                                 dispatch(setStreamingStatus(data.status));
                             } else if (currentEventType === 'result') {
-                                // Add Assistant message with markdown, images, url, and artifact
+                                // Add Assistant message with markdown, images, url, artifact, and RAG sources
                                 dispatch(addMessage({
                                     role: 'assistant',
                                     content: data.response,
@@ -151,6 +174,7 @@ export const ChatDashboard = () => {
                                     images: data.images || [],
                                     artifact: data.artifact || null,
                                     url: data.url || null,
+                                    ragSources: data.ragSources || [],
                                     createdAt: new Date().toISOString()
                                 }));
 
@@ -188,6 +212,70 @@ export const ChatDashboard = () => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             handleSend();
+        }
+    };
+
+    // RAG Document Upload Handler
+    const handleFileUpload = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const currentConvId = activeConversationId || 'default';
+        const userId = user?.userId || user?.firebaseUid || user?.uid || '';
+
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('conversationId', currentConvId);
+        formData.append('userId', userId);
+
+        setIsUploadingDoc(true);
+        try {
+            const res = await fetch(`${API_BASE}/agent/rag/upload`, {
+                method: 'POST',
+                headers: {
+                    'x-user-id': userId
+                },
+                body: formData
+            });
+
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Failed to upload document');
+
+            setUploadedDocs(prev => {
+                const exists = prev.some(d => d.docName === data.document.docName);
+                if (exists) return prev.map(d => d.docName === data.document.docName ? data.document : d);
+                return [...prev, data.document];
+            });
+
+            dispatch(addToast({
+                message: `📄 Knowledge Indexed: "${data.document.docName}" (${data.document.totalChunks} chunks)`,
+                type: 'success'
+            }));
+        } catch (err) {
+            console.error('RAG upload error:', err);
+            dispatch(addToast({ message: err.message || 'Document upload failed', type: 'error' }));
+        } finally {
+            setIsUploadingDoc(false);
+            if (fileInputRef.current) fileInputRef.current.value = '';
+        }
+    };
+
+    // RAG Document Removal Handler
+    const handleRemoveDoc = async (docName) => {
+        const currentConvId = activeConversationId || 'default';
+        const userId = user?.userId || user?.firebaseUid || user?.uid || '';
+
+        try {
+            await fetch(`${API_BASE}/agent/rag/documents/${encodeURIComponent(docName)}?conversationId=${currentConvId}`, {
+                method: 'DELETE',
+                headers: {
+                    'x-user-id': userId
+                }
+            });
+            setUploadedDocs(prev => prev.filter(d => d.docName !== docName));
+            dispatch(addToast({ message: `Removed "${docName}" from knowledge base.`, type: 'info' }));
+        } catch (err) {
+            console.warn('Could not remove document:', err);
         }
     };
 
@@ -343,6 +431,25 @@ export const ChatDashboard = () => {
                                                             </button>
                                                         </div>
                                                     )}
+
+                                                    {/* RAG Knowledge Document Citation Pill */}
+                                                    {msg.ragSources && msg.ragSources.length > 0 && (
+                                                        <div className="mt-3.5 pt-2.5 border-t border-indigo-900/40 flex items-center gap-2 flex-wrap">
+                                                            <span className="text-[11px] font-semibold text-emerald-400 uppercase tracking-wider flex items-center gap-1">
+                                                                <CheckCircle2 className="w-3 h-3" />
+                                                                Cited Knowledge Base:
+                                                            </span>
+                                                            {[...new Set(msg.ragSources.map(s => s.docName))].map((doc, idx) => (
+                                                                <span
+                                                                    key={idx}
+                                                                    className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-emerald-950/70 border border-emerald-800/50 text-emerald-300 text-xs font-medium shadow-sm"
+                                                                >
+                                                                    <FileText className="w-3 h-3 text-emerald-400" />
+                                                                    <span>{doc}</span>
+                                                                </span>
+                                                            ))}
+                                                        </div>
+                                                    )}
                                                 </>
                                             )}
                                         </div>
@@ -370,31 +477,104 @@ export const ChatDashboard = () => {
 
                 {/* Bottom Prompt Input Area */}
                 <div className="p-4 bg-gradient-to-t from-slate-950 via-slate-950/80 to-transparent shrink-0">
-                    <div className="max-w-4xl mx-auto relative rounded-2xl bg-slate-900/90 border border-indigo-900/50 shadow-2xl backdrop-blur-xl transition-all focus-within:border-indigo-500/80 focus-within:ring-2 focus-within:ring-indigo-500/20">
+                    <div className="max-w-4xl mx-auto rounded-2xl bg-slate-900/90 border border-indigo-900/50 shadow-2xl backdrop-blur-xl transition-all focus-within:border-indigo-500/80 focus-within:ring-2 focus-within:ring-indigo-500/20 overflow-hidden">
+                        {/* Active Knowledge Documents Bar */}
+                        {uploadedDocs.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-2 px-3.5 py-2 bg-indigo-950/40 border-b border-indigo-900/40">
+                                <span className="text-[11px] font-semibold uppercase tracking-wider text-indigo-400 flex items-center gap-1">
+                                    <Sparkles className="w-3 h-3 text-indigo-400" />
+                                    Active Knowledge:
+                                </span>
+                                {uploadedDocs.map((doc, idx) => (
+                                    <div
+                                        key={idx}
+                                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-900/40 border border-indigo-700/50 text-indigo-200 text-xs shadow-sm"
+                                    >
+                                        <FileText className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                                        <span className="max-w-[140px] truncate font-medium">{doc.docName}</span>
+                                        <span className="text-[10px] text-indigo-400 bg-indigo-950 px-1 rounded border border-indigo-800/40">
+                                            {doc.totalChunks || 1} chunks
+                                        </span>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleRemoveDoc(doc.docName)}
+                                            className="p-0.5 hover:text-rose-400 rounded transition-colors cursor-pointer ml-0.5"
+                                            title="Remove from knowledge base"
+                                        >
+                                            <X className="w-3 h-3" />
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        {/* Hidden File Input */}
+                        <input
+                            type="file"
+                            ref={fileInputRef}
+                            accept=".pdf,.txt,.md,.csv"
+                            className="hidden"
+                            onChange={handleFileUpload}
+                        />
+
+                        {/* Prompt Input Textarea */}
                         <textarea
                             ref={inputRef}
                             value={inputPrompt}
                             onChange={(e) => setInputPrompt(e.target.value)}
                             onKeyDown={handleKeyDown}
-                            placeholder={`Ask anything with ${selectedAgent.toUpperCase()} agent... (Enter to send, Shift+Enter for new line)`}
+                            placeholder={
+                                uploadedDocs.length > 0
+                                    ? `Ask about your ${uploadedDocs.length} knowledge document${uploadedDocs.length === 1 ? '' : 's'} or prompt ${selectedAgent.toUpperCase()} agent...`
+                                    : `Ask anything with ${selectedAgent.toUpperCase()} agent... (Enter to send, Shift+Enter for new line)`
+                            }
                             rows={2}
                             disabled={isStreaming}
-                            className="w-full bg-transparent px-4 py-3.5 pr-14 text-sm text-white placeholder-slate-500 resize-none focus:outline-none disabled:opacity-50"
+                            className="w-full bg-transparent px-4 py-3 text-sm text-white placeholder-slate-500 resize-none focus:outline-none disabled:opacity-50"
                         />
 
-                        {/* Send Action Button */}
-                        <button
-                            onClick={() => handleSend()}
-                            disabled={!inputPrompt.trim() || isStreaming}
-                            className="absolute right-3 bottom-3 p-2 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white shadow-md shadow-indigo-600/30 transition-all disabled:opacity-40 disabled:hover:from-indigo-600 disabled:hover:to-violet-600 cursor-pointer"
-                            title="Send prompt"
-                        >
-                            {isStreaming ? (
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                            ) : (
-                                <Send className="w-4 h-4" />
-                            )}
-                        </button>
+                        {/* Input Action Controls (Document Upload & Send) */}
+                        <div className="flex items-center justify-between px-3 pb-2.5 pt-0.5">
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => fileInputRef.current?.click()}
+                                    disabled={isUploadingDoc || isStreaming}
+                                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 text-slate-300 hover:text-indigo-300 border border-indigo-950 hover:border-indigo-800/60 text-xs font-medium transition-all cursor-pointer disabled:opacity-50"
+                                    title="Upload PDF or TXT to add to RAG Knowledge Base"
+                                >
+                                    {isUploadingDoc ? (
+                                        <>
+                                            <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-400" />
+                                            <span>Indexing Knowledge...</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Paperclip className="w-3.5 h-3.5 text-indigo-400" />
+                                            <span>Upload PDF/TXT</span>
+                                        </>
+                                    )}
+                                </button>
+                                {uploadedDocs.length > 0 && (
+                                    <span className="text-[11px] text-slate-400 hidden sm:inline">
+                                        RAG Context Attached ({uploadedDocs.length})
+                                    </span>
+                                )}
+                            </div>
+
+                            <button
+                                onClick={() => handleSend()}
+                                disabled={!inputPrompt.trim() || isStreaming}
+                                className="p-2 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white shadow-md shadow-indigo-600/30 transition-all disabled:opacity-40 disabled:hover:from-indigo-600 disabled:hover:to-violet-600 cursor-pointer"
+                                title="Send prompt"
+                            >
+                                {isStreaming ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                    <Send className="w-4 h-4" />
+                                )}
+                            </button>
+                        </div>
                     </div>
 
                     <p className="text-center text-[11px] text-slate-500 mt-2">

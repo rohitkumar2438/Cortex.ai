@@ -2,12 +2,16 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import { handleRun, handleStream } from '../controllers/agentController.js';
+import ragRoutes from './ragRoutes.js';
 
 const router = express.Router();
 
 router.post('/run', handleRun);
 router.post('/stream', handleStream);
 router.get('/stream', handleStream);
+
+// RAG Endpoints (/agent/rag/upload, /agent/rag/documents, /agent/rag/documents/:docName)
+router.use('/rag', ragRoutes);
 
 // Dedicated download endpoint for locally stored generated files (PDF, PPT, Image)
 router.get('/downloads/:filename', (req, res) => {

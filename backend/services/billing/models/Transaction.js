@@ -64,3 +64,4 @@ transactionSchema.virtual('id').get(function () {
 
 const Transaction = mongoose.model('Transaction', transactionSchema);
 export default Transaction;
+

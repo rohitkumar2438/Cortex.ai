@@ -149,6 +149,7 @@ export const executeAgentWorkflow = async ({
     const images = graphResult.images || [];
     const artifact = graphResult.artifact || null;
     const downloadUrl = graphResult.url || null;
+    const ragSources = graphResult.ragSources || [];
 
     // 4. Persist assistant message
     if (conversationId && conversationId !== 'default' && userId) {
@@ -169,7 +170,8 @@ export const executeAgentWorkflow = async ({
         artifact,
         url: downloadUrl,
         conversationId,
-        remainingCredits: deductionResult?.remainingCredits
+        remainingCredits: deductionResult?.remainingCredits,
+        ragSources
     };
 };
 

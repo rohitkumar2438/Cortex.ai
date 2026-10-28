@@ -7,15 +7,32 @@ import { runCodingAgent } from "../agents/codingAgent.js";
 import { runPdfAgent } from "../agents/pdfAgent.js";
 import { runPptAgent } from "../agents/pptAgent.js";
 import { runImageAgent } from "../agents/imageAgent.js";
+import { retrieveContext } from "../rag/ragService.js";
 
-// 1. Agent Execution Nodes
+// 1. Agent Execution Nodes with RAG Context Injection
 const chatNode = async (state) => {
-    const result = await runChatAgent(state.prompt, state.messages);
+    let ragContext = state.ragContext || '';
+    let ragSources = state.ragSources || [];
+
+    if (!ragContext) {
+        const ragRes = await retrieveContext({
+            prompt: state.prompt,
+            userId: state.userId,
+            conversationId: state.conversationId
+        });
+        if (ragRes.hasContext) {
+            ragContext = ragRes.contextText;
+            ragSources = ragRes.sources;
+        }
+    }
+
+    const result = await runChatAgent(state.prompt, state.messages, ragContext, ragSources);
     return {
         response: result.response,
         agent: 'chat',
         images: result.images || [],
-        artifact: result.artifact || null
+        artifact: result.artifact || null,
+        ragSources: result.ragSources || []
     };
 };
 
@@ -40,13 +57,29 @@ const codingNode = async (state) => {
 };
 
 const pdfNode = async (state) => {
-    const result = await runPdfAgent(state.prompt);
+    let ragContext = state.ragContext || '';
+    let ragSources = state.ragSources || [];
+
+    if (!ragContext) {
+        const ragRes = await retrieveContext({
+            prompt: state.prompt,
+            userId: state.userId,
+            conversationId: state.conversationId
+        });
+        if (ragRes.hasContext) {
+            ragContext = ragRes.contextText;
+            ragSources = ragRes.sources;
+        }
+    }
+
+    const result = await runPdfAgent(state.prompt, ragContext, ragSources);
     return {
         response: result.response,
         agent: 'pdf',
         images: result.images || [],
         url: result.url || null,
-        artifact: result.artifact || null
+        artifact: result.artifact || null,
+        ragSources: result.ragSources || []
     };
 };
 

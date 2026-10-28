@@ -9,11 +9,10 @@ import { storeFileAndGetUrl } from "../utils/storageService.js";
  * 2. PDFKit compiles styled downloadable PDF.
  * 3. Saves via S3-ready storage abstraction and returns download URL.
  */
-export const runPdfAgent = async (prompt) => {
+export const runPdfAgent = async (prompt, ragContext = '', ragSources = []) => {
     // 1. LLM drafts the document content
     const model = getModel('pdf');
-    const draftSystemPrompt = new SystemMessage(
-        `You are Cortex AI's Executive Document Author.
+    let systemText = `You are Cortex AI's Executive Document Author.
 Given the user's request, draft a comprehensive, professional formal document or report.
 Structure your output clearly with:
 - TITLE: A clear, formal document title on the very first line starting with "TITLE: "
@@ -21,8 +20,13 @@ Structure your output clearly with:
 - SECTION 1, SECTION 2, etc.: Substantive, detailed analysis with bullet points and clear insights.
 - CONCLUSION & RECOMMENDATIONS: Actionable next steps.
 
-Write polished, ready-to-publish content.`
-    );
+Write polished, ready-to-publish content.`;
+
+    if (ragContext) {
+        systemText += `\n\nKNOWLEDGE BASE CONTEXT (incorporate and reference these findings into the document analysis):\n${ragContext}`;
+    }
+
+    const draftSystemPrompt = new SystemMessage(systemText);
 
     const draftResponse = await model.invoke([
         draftSystemPrompt,
@@ -107,12 +111,20 @@ Write polished, ready-to-publish content.`
     // 3. Save via S3-ready storage abstraction
     const storageResult = await storeFileAndGetUrl(pdfBuffer, `${documentTitle.slice(0, 20)}.pdf`, 'application/pdf');
 
+    let responseText = `### 📄 ${documentTitle}\n\nI have drafted and compiled your formal document into a downloadable PDF.\n\n**Executive Overview:**\n${bodyContent.slice(0, 300)}...\n\n👉 **[Download PDF Document](${storageResult.url})**`;
+
+    if (ragSources && ragSources.length > 0) {
+        const uniqueDocs = [...new Set(ragSources.map(s => s.docName))];
+        responseText += `\n\n> 📄 **Cited Knowledge Documents:**\n` + uniqueDocs.map(d => `> - *${d}*`).join('\n');
+    }
+
     return {
-        response: `### 📄 ${documentTitle}\n\nI have drafted and compiled your formal document into a downloadable PDF.\n\n**Executive Overview:**\n${bodyContent.slice(0, 300)}...\n\n👉 **[Download PDF Document](${storageResult.url})**`,
+        response: responseText,
         agent: 'pdf',
         images: [],
         url: storageResult.url,
-        artifact: null
+        artifact: null,
+        ragSources: ragSources || []
     };
 };
 

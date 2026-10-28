@@ -47,3 +47,4 @@ export const getAgentCreditCost = (agent = 'chat') => {
 };
 
 export default CREDIT_PACKS;
+

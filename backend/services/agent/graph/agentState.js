@@ -46,6 +46,15 @@ export const agentStateChannels = {
     userId: {
         value: (prev, next) => (next !== undefined ? next : prev),
         default: () => ""
+    },
+    // RAG retrieved context and citation sources
+    ragContext: {
+        value: (prev, next) => (next !== undefined ? next : prev),
+        default: () => ""
+    },
+    ragSources: {
+        value: (prev, next) => (next !== undefined ? next : prev),
+        default: () => []
     }
 };
 
