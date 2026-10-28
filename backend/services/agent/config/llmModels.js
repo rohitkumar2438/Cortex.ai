@@ -4,52 +4,103 @@ import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { ChatOpenAI } from "@langchain/openai";
 
 /**
- * Returns the best suited LLM model for each specialized agent.
- * Gracefully falls back to Groq or available API keys if a specific provider key is missing.
+ * Returns the appropriate LLM instance for each specialized agent.
+ * Respects environment variables and never hardcodes keys.
+ * Switch on agent name as per specification.
  */
-export const getModel = (agentType = 'chat', options = {}) => {
+export const getModel = (agent = 'chat', options = {}) => {
     const groqKey = process.env.GROQ_API_KEY;
-    const geminiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
-    const openRouterKey = process.env.OPENROUTER_API_KEY;
+    const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+    const deepseekKey = process.env.DEEPSEEK_API_KEY || process.env.OPENROUTER_API_KEY;
     const openAIKey = process.env.OPENAI_API_KEY;
 
-    // 1. Coding Agent: DeepSeek via OpenRouter (or Groq LLaMA-3.3 fallback)
-    if (agentType === 'coding') {
-        if (openRouterKey) {
-            return new ChatOpenAI({
-                modelName: "deepseek/deepseek-chat",
-                openAIApiKey: openRouterKey,
-                configuration: {
-                    baseURL: "https://openrouter.ai/api/v1"
-                },
-                temperature: 0.2,
-                ...options
-            });
-        }
-        if (groqKey) {
-            return new ChatGroq({
-                apiKey: groqKey,
-                model: "qwen/qwen3.8-27b",
-                temperature: 0.2,
-                ...options
-            });
-        }
+    switch (agent) {
+        case 'coding':
+            // Coding Agent: DeepSeek (Phase 5) with Groq fallback
+            if (deepseekKey) {
+                return new ChatOpenAI({
+                    modelName: "deepseek/deepseek-chat",
+                    openAIApiKey: deepseekKey,
+                    configuration: {
+                        baseURL: "https://openrouter.ai/api/v1"
+                    },
+                    temperature: 0.2,
+                    ...options
+                });
+            }
+            if (groqKey) {
+                return new ChatGroq({
+                    apiKey: groqKey,
+                    model: "qwen/qwen3.8-27b",
+                    temperature: 0.2,
+                    ...options
+                });
+            }
+            break;
+
+        case 'image':
+            // Image / Vision Agent: Gemini 2.5 / 1.5 Flash
+            if (geminiKey) {
+                return new ChatGoogleGenerativeAI({
+                    apiKey: geminiKey,
+                    model: "gemini-1.5-flash",
+                    temperature: 0.4,
+                    ...options
+                });
+            }
+            break;
+
+        case 'pdf':
+        case 'ppt':
+            // Document / Presentation agents: Groq with fast generation
+            if (groqKey) {
+                return new ChatGroq({
+                    apiKey: groqKey,
+                    model: "qwen/qwen3.8-27b",
+                    temperature: 0.3,
+                    ...options
+                });
+            }
+            break;
+
+        case 'search':
+            // Search Agent: Groq with high precision for grounding live context
+            if (groqKey) {
+                return new ChatGroq({
+                    apiKey: groqKey,
+                    model: "qwen/qwen3.8-27b",
+                    temperature: 0.3,
+                    maxRetries: 2,
+                    ...options
+                });
+            }
+            break;
+
+        case 'chat':
+        default:
+            // Chat Agent: Groq model with history awareness and fallback
+            if (groqKey) {
+                const primary = new ChatGroq({
+                    apiKey: groqKey,
+                    model: "qwen/qwen3.8-27b",
+                    temperature: 0.7,
+                    maxRetries: 2,
+                    ...options
+                });
+                const fallback = new ChatGroq({
+                    apiKey: groqKey,
+                    model: "openai/gpt-oss-120b",
+                    temperature: 0.7,
+                    maxRetries: 2,
+                    ...options
+                });
+                return primary.withFallbacks([fallback]);
+            }
+            break;
     }
 
-    // 2. Vision / Image Analysis Agent: Gemini 2.5 / 1.5 Flash
-    if (agentType === 'imageAnalyzer' || agentType === 'vision') {
-        if (geminiKey) {
-            return new ChatGoogleGenerativeAI({
-                apiKey: geminiKey,
-                model: "gemini-1.5-flash",
-                temperature: 0.4,
-                ...options
-            });
-        }
-    }
-
-    // 3. Fallback to OpenAI if configured
-    if (openAIKey && !groqKey) {
+    // Default fallback to OpenAI if configured, otherwise a safe mockable instance
+    if (openAIKey) {
         return new ChatOpenAI({
             openAIApiKey: openAIKey,
             modelName: "gpt-4o-mini",
@@ -58,22 +109,14 @@ export const getModel = (agentType = 'chat', options = {}) => {
         });
     }
 
-    // 4. Default / General Chat / Search / RAG: Groq with automatic fallback
-    const primaryGroq = new ChatGroq({
-        apiKey: groqKey || 'dummy_key',
+    // Safe dev fallback when no external API key is active
+    return new ChatGroq({
+        apiKey: groqKey || 'gsk_dummy_dev_key',
         model: "qwen/qwen3.8-27b",
         temperature: 0.7,
-        maxRetries: 2,
+        maxRetries: 1,
         ...options
     });
-
-    const fallbackGroq = new ChatGroq({
-        apiKey: groqKey || 'dummy_key',
-        model: "openai/gpt-oss-120b",
-        temperature: 0.7,
-        maxRetries: 2,
-        ...options
-    });
-
-    return primaryGroq.withFallbacks([fallbackGroq]);
 };
+
+export default getModel;
