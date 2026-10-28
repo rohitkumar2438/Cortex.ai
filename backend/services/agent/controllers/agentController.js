@@ -30,6 +30,7 @@ export const handleRun = async (req, res, next) => {
             agent: result.agent,
             type: result.agent,
             images: result.images || [],
+            url: result.url || null,
             artifact: result.artifact || null,
             conversationId: result.conversationId
         });
@@ -83,6 +84,7 @@ export const handleStream = async (req, res, next) => {
             response: result.response,
             agent: result.agent,
             images: result.images || [],
+            url: result.url || null,
             artifact: result.artifact || null
         });
 

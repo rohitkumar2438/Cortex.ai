@@ -17,7 +17,7 @@ export const createMessage = async (userId, conversationId, messageData) => {
         throw error;
     }
 
-    const { role, content, agent = 'chat', images = [], artifact = null } = messageData;
+    const { role, content, agent = 'chat', images = [], artifact = null, url = null } = messageData;
 
     // 2. Persist message document
     const message = new Message({
@@ -26,6 +26,7 @@ export const createMessage = async (userId, conversationId, messageData) => {
         content,
         agent,
         images: Array.isArray(images) ? images : [],
+        url: url || null,
         artifact: artifact || null
     });
 

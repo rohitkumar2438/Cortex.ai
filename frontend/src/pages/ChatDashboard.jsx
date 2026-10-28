@@ -24,7 +24,10 @@ import {
     Loader2,
     FileCode,
     Play,
-    Code2
+    Download,
+    FileText,
+    Presentation,
+    Image as ImageIcon
 } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -133,13 +136,14 @@ export const ChatDashboard = () => {
                                 // "Thinking" -> "Reasoning" -> "Generating"
                                 dispatch(setStreamingStatus(data.status));
                             } else if (currentEventType === 'result') {
-                                // Add Assistant message with markdown, images, and artifact
+                                // Add Assistant message with markdown, images, url, and artifact
                                 dispatch(addMessage({
                                     role: 'assistant',
                                     content: data.response,
                                     agent: data.agent,
                                     images: data.images || [],
                                     artifact: data.artifact || null,
+                                    url: data.url || null,
                                     createdAt: new Date().toISOString()
                                 }));
 
@@ -170,6 +174,29 @@ export const ChatDashboard = () => {
             e.preventDefault();
             handleSend();
         }
+    };
+
+    // Helper to detect download link from content if not explicitly in msg.url
+    const getDownloadInfo = (msg) => {
+        let url = msg.url;
+        if (!url && msg.content) {
+            const match = msg.content.match(/\[(?:Download|View)[^\]]*\]\((https?:\/\/[^\s)]+|\/agent\/downloads\/[^\s)]+)\)/i);
+            if (match) url = match[1];
+        }
+
+        if (!url) return null;
+
+        const isPdf = url.includes('.pdf') || msg.agent === 'pdf';
+        const isPpt = url.includes('.pptx') || msg.agent === 'ppt';
+        const isImg = url.includes('.jpg') || url.includes('.png') || url.includes('.jpeg') || msg.agent === 'image';
+
+        return {
+            url,
+            isPdf,
+            isPpt,
+            isImg,
+            label: isPdf ? 'Download PDF Document' : isPpt ? 'Download PowerPoint (.pptx)' : isImg ? 'Download High-Res Image' : 'Download Generated File'
+        };
     };
 
     return (
@@ -220,6 +247,7 @@ export const ChatDashboard = () => {
                             {messages.map((msg, index) => {
                                 const isUser = msg.role === 'user';
                                 const hasArtifact = !isUser && msg.artifact && msg.artifact.files?.length > 0;
+                                const downloadInfo = !isUser ? getDownloadInfo(msg) : null;
 
                                 return (
                                     <div
@@ -247,6 +275,32 @@ export const ChatDashboard = () => {
                                                         content={msg.content}
                                                         images={msg.images || []}
                                                     />
+
+                                                    {/* Interactive Download Buttons (PDF, PPT, Image) */}
+                                                    {downloadInfo && (
+                                                        <div className="mt-4 pt-3.5 border-t border-indigo-900/40 flex flex-wrap items-center justify-between gap-3 bg-indigo-950/40 -mx-2 -mb-1 p-3 rounded-xl">
+                                                            <div className="flex items-center gap-2 text-xs font-semibold text-indigo-300">
+                                                                {downloadInfo.isPdf && <FileText className="w-4 h-4 text-rose-400 shrink-0" />}
+                                                                {downloadInfo.isPpt && <Presentation className="w-4 h-4 text-orange-400 shrink-0" />}
+                                                                {downloadInfo.isImg && <ImageIcon className="w-4 h-4 text-purple-400 shrink-0" />}
+                                                                {!downloadInfo.isPdf && !downloadInfo.isPpt && !downloadInfo.isImg && (
+                                                                    <Download className="w-4 h-4 text-indigo-400 shrink-0" />
+                                                                )}
+                                                                <span>{downloadInfo.label}</span>
+                                                            </div>
+
+                                                            <a
+                                                                href={downloadInfo.url}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                download
+                                                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-semibold text-xs shadow-md shadow-indigo-900/30 transition-all cursor-pointer no-underline"
+                                                            >
+                                                                <Download className="w-3.5 h-3.5" />
+                                                                <span>Download</span>
+                                                            </a>
+                                                        </div>
+                                                    )}
 
                                                     {/* Interactive Artifact Button Card (Restores on Reload) */}
                                                     {hasArtifact && (

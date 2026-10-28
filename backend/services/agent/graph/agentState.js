@@ -33,6 +33,11 @@ export const agentStateChannels = {
         value: (prev, next) => (next !== undefined ? next : prev),
         default: () => null
     },
+    // Optional file/document/image download URL
+    url: {
+        value: (prev, next) => (next !== undefined ? next : prev),
+        default: () => null
+    },
     // Thread metadata
     conversationId: {
         value: (prev, next) => (next !== undefined ? next : prev),

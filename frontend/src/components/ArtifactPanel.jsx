@@ -283,3 +283,4 @@ export const ArtifactPanel = ({ artifact, onClose }) => {
 };
 
 export default ArtifactPanel;
+

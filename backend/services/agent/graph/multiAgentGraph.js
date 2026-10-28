@@ -4,11 +4,9 @@ import { routerNode } from "./routerNode.js";
 import { runChatAgent } from "../agents/chatAgent.js";
 import { runSearchAgent } from "../agents/searchAgent.js";
 import { runCodingAgent } from "../agents/codingAgent.js";
-import {
-    runPdfAgentStub,
-    runPptAgentStub,
-    runImageAgentStub
-} from "../agents/stubs.js";
+import { runPdfAgent } from "../agents/pdfAgent.js";
+import { runPptAgent } from "../agents/pptAgent.js";
+import { runImageAgent } from "../agents/imageAgent.js";
 
 // 1. Agent Execution Nodes
 const chatNode = async (state) => {
@@ -42,31 +40,34 @@ const codingNode = async (state) => {
 };
 
 const pdfNode = async (state) => {
-    const result = await runPdfAgentStub(state.prompt);
+    const result = await runPdfAgent(state.prompt);
     return {
         response: result.response,
         agent: 'pdf',
         images: result.images || [],
+        url: result.url || null,
         artifact: result.artifact || null
     };
 };
 
 const pptNode = async (state) => {
-    const result = await runPptAgentStub(state.prompt);
+    const result = await runPptAgent(state.prompt);
     return {
         response: result.response,
         agent: 'ppt',
         images: result.images || [],
+        url: result.url || null,
         artifact: result.artifact || null
     };
 };
 
 const imageNode = async (state) => {
-    const result = await runImageAgentStub(state.prompt);
+    const result = await runImageAgent(state.prompt);
     return {
         response: result.response,
         agent: 'image',
         images: result.images || [],
+        url: result.url || null,
         artifact: result.artifact || null
     };
 };

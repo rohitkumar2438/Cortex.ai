@@ -41,6 +41,11 @@ const messageSchema = new mongoose.Schema(
             type: [String],
             default: []
         },
+        // Generated file download URL (PDF, PPT, or Image)
+        url: {
+            type: String,
+            default: null
+        },
         // Optional structured artifact for coding / preview
         artifact: {
             type: artifactSchema,
