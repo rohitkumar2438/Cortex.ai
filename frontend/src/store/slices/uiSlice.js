@@ -30,3 +30,4 @@ const uiSlice = createSlice({
 
 export const { toggleSidebar, setSidebarOpen, addToast, removeToast } = uiSlice.actions;
 export default uiSlice.reducer;
+

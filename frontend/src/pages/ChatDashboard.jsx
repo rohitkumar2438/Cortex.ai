@@ -5,6 +5,7 @@ import AgentSelector from '../components/AgentSelector.jsx';
 import AgentCards from '../components/AgentCards.jsx';
 import MarkdownRenderer from '../components/MarkdownRenderer.jsx';
 import SSEStatusIndicator from '../components/SSEStatusIndicator.jsx';
+import ArtifactPanel from '../components/ArtifactPanel.jsx';
 import ToastContainer from '../components/ToastContainer.jsx';
 import {
     fetchConversations,
@@ -21,7 +22,9 @@ import {
     User,
     Bot,
     Loader2,
-    RefreshCw
+    FileCode,
+    Play,
+    Code2
 } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -33,6 +36,7 @@ export const ChatDashboard = () => {
     const sidebarOpen = useSelector((state) => state.ui.sidebarOpen);
 
     const [inputPrompt, setInputPrompt] = useState('');
+    const [activeArtifact, setActiveArtifact] = useState(null);
     const messagesEndRef = useRef(null);
     const inputRef = useRef(null);
 
@@ -40,6 +44,16 @@ export const ChatDashboard = () => {
     useEffect(() => {
         dispatch(fetchConversations());
     }, [dispatch]);
+
+    // When active conversation changes, check if the latest message has an artifact to restore
+    useEffect(() => {
+        const lastMsgWithArtifact = [...messages].reverse().find(m => m.artifact && m.artifact.files?.length > 0);
+        if (lastMsgWithArtifact) {
+            setActiveArtifact(lastMsgWithArtifact.artifact);
+        } else {
+            setActiveArtifact(null);
+        }
+    }, [activeConversationId, messages.length]);
 
     // Auto-scroll to bottom of messages
     useEffect(() => {
@@ -128,6 +142,11 @@ export const ChatDashboard = () => {
                                     artifact: data.artifact || null,
                                     createdAt: new Date().toISOString()
                                 }));
+
+                                // Automatically open Artifact panel if an artifact was generated
+                                if (data.artifact && data.artifact.files?.length > 0) {
+                                    setActiveArtifact(data.artifact);
+                                }
                             } else if (currentEventType === 'error') {
                                 dispatch(addToast({ message: data.error || 'Agent execution error', type: 'error' }));
                             }
@@ -200,6 +219,7 @@ export const ChatDashboard = () => {
                         <div className="max-w-4xl mx-auto space-y-6">
                             {messages.map((msg, index) => {
                                 const isUser = msg.role === 'user';
+                                const hasArtifact = !isUser && msg.artifact && msg.artifact.files?.length > 0;
 
                                 return (
                                     <div
@@ -222,10 +242,31 @@ export const ChatDashboard = () => {
                                             {isUser ? (
                                                 <p className="whitespace-pre-wrap text-sm leading-relaxed">{msg.content}</p>
                                             ) : (
-                                                <MarkdownRenderer
-                                                    content={msg.content}
-                                                    images={msg.images || []}
-                                                />
+                                                <>
+                                                    <MarkdownRenderer
+                                                        content={msg.content}
+                                                        images={msg.images || []}
+                                                    />
+
+                                                    {/* Interactive Artifact Button Card (Restores on Reload) */}
+                                                    {hasArtifact && (
+                                                        <div className="mt-4 pt-3.5 border-t border-indigo-900/40 flex flex-wrap items-center justify-between gap-3 bg-indigo-950/30 -mx-2 -mb-1 p-3 rounded-xl">
+                                                            <div className="flex items-center gap-2 text-xs font-semibold text-indigo-300">
+                                                                <FileCode className="w-4 h-4 text-emerald-400 shrink-0" />
+                                                                <span>
+                                                                    {msg.artifact.files.length} project file{msg.artifact.files.length === 1 ? '' : 's'} • {msg.artifact.language || 'Web App'}
+                                                                </span>
+                                                            </div>
+                                                            <button
+                                                                onClick={() => setActiveArtifact(msg.artifact)}
+                                                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-semibold text-xs shadow-md shadow-emerald-900/30 transition-all cursor-pointer"
+                                                            >
+                                                                <Play className="w-3.5 h-3.5" />
+                                                                <span>Open Artifact Workspace</span>
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </>
                                             )}
                                         </div>
 
@@ -284,6 +325,14 @@ export const ChatDashboard = () => {
                     </p>
                 </div>
             </main>
+
+            {/* Side-by-Side Live Artifact Workspace Panel */}
+            {activeArtifact && (
+                <ArtifactPanel
+                    artifact={activeArtifact}
+                    onClose={() => setActiveArtifact(null)}
+                />
+            )}
         </div>
     );
 };

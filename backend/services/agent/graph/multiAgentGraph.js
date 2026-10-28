@@ -3,8 +3,8 @@ import { agentStateChannels } from "./agentState.js";
 import { routerNode } from "./routerNode.js";
 import { runChatAgent } from "../agents/chatAgent.js";
 import { runSearchAgent } from "../agents/searchAgent.js";
+import { runCodingAgent } from "../agents/codingAgent.js";
 import {
-    runCodingAgentStub,
     runPdfAgentStub,
     runPptAgentStub,
     runImageAgentStub
@@ -32,7 +32,7 @@ const searchNode = async (state) => {
 };
 
 const codingNode = async (state) => {
-    const result = await runCodingAgentStub(state.prompt);
+    const result = await runCodingAgent(state.prompt, state.messages);
     return {
         response: result.response,
         agent: 'coding',
