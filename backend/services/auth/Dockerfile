@@ -8,7 +8,7 @@ COPY backend/shared ./backend/shared
 # Copy auth service files
 COPY backend/services/auth/package*.json ./backend/services/auth/
 WORKDIR /app/backend/services/auth
-RUN npm install --omit=dev
+RUN npm install --omit=dev --legacy-peer-deps
 
 COPY backend/services/auth ./
 

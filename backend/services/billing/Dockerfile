@@ -8,7 +8,7 @@ COPY backend/shared ./backend/shared
 # Copy billing service files
 COPY backend/services/billing/package*.json ./backend/services/billing/
 WORKDIR /app/backend/services/billing
-RUN npm install --omit=dev
+RUN npm install --omit=dev --legacy-peer-deps
 
 COPY backend/services/billing ./
 

@@ -222,3 +222,4 @@ See [`docs/aws-deployment-guide.md`](docs/aws-deployment-guide.md) for step-by-s
 - **Storage:** Amazon S3 for generated files with presigned URLs and CloudFront CDN for the frontend.
 - **Database:** MongoDB Atlas with VPC peering and Amazon ElastiCache (Redis).
 - **Secrets:** Storing credentials securely in AWS Systems Manager (SSM) Parameter Store.
+

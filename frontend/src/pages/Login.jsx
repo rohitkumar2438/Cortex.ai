@@ -30,6 +30,22 @@ export const Login = () => {
         }
     };
 
+    const handleDemoSignIn = async () => {
+        try {
+            setLoading(true);
+            const actionResult = await dispatch(loginWithFirebase('demo_token'));
+            if (loginWithFirebase.rejected.match(actionResult)) {
+                throw new Error(actionResult.payload || 'Demo login rejected');
+            }
+            dispatch(addToast({ message: 'Logged in as Cortex Developer (100 credits)!', type: 'success' }));
+        } catch (err) {
+            console.error('Demo Login Error:', err);
+            dispatch(addToast({ message: err.message || 'Demo login failed.', type: 'error' }));
+        } finally {
+            setLoading(false);
+        }
+    };
+
     return (
         <div className="min-h-screen w-full bg-[#090d16] text-slate-100 flex flex-col justify-center items-center relative overflow-hidden px-4">
             {/* Ambient Background Glows */}
@@ -101,6 +117,22 @@ export const Login = () => {
                             <ArrowRight className="w-4 h-4 text-slate-500" />
                         </>
                     )}
+                </button>
+
+                {/* Developer Demo One-Click Sign-In */}
+                <div className="relative my-4 flex items-center justify-center">
+                    <div className="border-t border-indigo-900/40 w-full" />
+                    <span className="bg-slate-900 px-3 text-[11px] text-slate-500 uppercase tracking-widest">or</span>
+                    <div className="border-t border-indigo-900/40 w-full" />
+                </div>
+
+                <button
+                    onClick={handleDemoSignIn}
+                    disabled={loading}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-slate-800/80 hover:bg-slate-800 text-indigo-300 hover:text-white border border-indigo-800/40 text-xs font-semibold transition-all cursor-pointer shadow-md"
+                >
+                    <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>Quick Demo Login (100 Free Credits)</span>
                 </button>
 
                 <div className="mt-6 flex items-center justify-center gap-1.5 text-xs text-slate-500">

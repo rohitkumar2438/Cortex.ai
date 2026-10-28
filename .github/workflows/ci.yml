@@ -67,3 +67,4 @@ jobs:
 
       - name: Validate docker-compose.yml
         run: docker compose -f docker-compose.yml config --quiet
+

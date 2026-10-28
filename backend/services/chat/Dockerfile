@@ -8,7 +8,7 @@ COPY backend/shared ./backend/shared
 # Copy chat service files
 COPY backend/services/chat/package*.json ./backend/services/chat/
 WORKDIR /app/backend/services/chat
-RUN npm install --omit=dev
+RUN npm install --omit=dev --legacy-peer-deps
 
 COPY backend/services/chat ./
 

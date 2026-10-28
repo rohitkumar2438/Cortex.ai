@@ -8,7 +8,7 @@ COPY backend/shared ./backend/shared
 # Copy agent service files
 COPY backend/services/agent/package*.json ./backend/services/agent/
 WORKDIR /app/backend/services/agent
-RUN npm install --omit=dev
+RUN npm install --omit=dev --legacy-peer-deps
 
 COPY backend/services/agent ./
 
