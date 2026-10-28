@@ -38,3 +38,4 @@ export const runImageAgentStub = async (prompt) => {
         artifact: null
     };
 };
+

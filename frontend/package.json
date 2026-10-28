@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@reduxjs/toolkit": "^2.13.0",
     "@tailwindcss/typography": "^0.5.20",
     "axios": "^1.20.0",
     "firebase": "^12.18.0",
@@ -17,7 +18,9 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-markdown": "^10.1.0",
+    "react-redux": "^9.3.1",
     "react-router-dom": "^7.18.3",
+    "react-syntax-highlighter": "^16.1.2",
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
