@@ -1,13 +1,8 @@
 import mongoose from 'mongoose';
+import { connectDB as sharedConnectDB } from '../../../shared/db.js';
 
 const connectDB = async () => {
-    try {
-        await mongoose.connect(process.env.MONGO_URI);
-        console.log('MongoDB connected successfully for Billing Service');
-    } catch (error) {
-        console.error('MongoDB connection failed:', error.message);
-        process.exit(1);
-    }
+    return await sharedConnectDB(process.env.MONGO_URI, 'Billing Service', mongoose);
 };
 
 export default connectDB;

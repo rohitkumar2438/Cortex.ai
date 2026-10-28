@@ -7,6 +7,7 @@ import MarkdownRenderer from '../components/MarkdownRenderer.jsx';
 import SSEStatusIndicator from '../components/SSEStatusIndicator.jsx';
 import ArtifactPanel from '../components/ArtifactPanel.jsx';
 import ToastContainer from '../components/ToastContainer.jsx';
+import { BillingModal } from '../components/BillingModal.jsx';
 import {
     fetchConversations,
     createNewConversation,
@@ -14,6 +15,7 @@ import {
     setStreamingStatus,
     setIsStreaming
 } from '../store/slices/chatSlice.js';
+import { updateUserCredits } from '../store/slices/authSlice.js';
 import { toggleSidebar, addToast } from '../store/slices/uiSlice.js';
 import {
     Send,
@@ -27,7 +29,8 @@ import {
     Download,
     FileText,
     Presentation,
-    Image as ImageIcon
+    Image as ImageIcon,
+    Coins
 } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -40,6 +43,7 @@ export const ChatDashboard = () => {
 
     const [inputPrompt, setInputPrompt] = useState('');
     const [activeArtifact, setActiveArtifact] = useState(null);
+    const [isBillingOpen, setIsBillingOpen] = useState(false);
     const messagesEndRef = useRef(null);
     const inputRef = useRef(null);
 
@@ -108,6 +112,9 @@ export const ChatDashboard = () => {
 
             if (!response.ok) {
                 const errData = await response.json().catch(() => ({}));
+                if (response.status === 402) {
+                    setIsBillingOpen(true);
+                }
                 throw new Error(errData.error || `HTTP ${response.status} Error`);
             }
 
@@ -151,7 +158,15 @@ export const ChatDashboard = () => {
                                 if (data.artifact && data.artifact.files?.length > 0) {
                                     setActiveArtifact(data.artifact);
                                 }
+
+                                // Update credits in real-time if returned
+                                if (data.remainingCredits !== undefined) {
+                                    dispatch(updateUserCredits(data.remainingCredits));
+                                }
                             } else if (currentEventType === 'error') {
+                                if (data.error && data.error.toLowerCase().includes('credit')) {
+                                    setIsBillingOpen(true);
+                                }
                                 dispatch(addToast({ message: data.error || 'Agent execution error', type: 'error' }));
                             }
                         } catch (parseErr) {
@@ -204,7 +219,7 @@ export const ChatDashboard = () => {
             <ToastContainer />
 
             {/* Collapsible Sidebar */}
-            <Sidebar />
+            <Sidebar onOpenBilling={() => setIsBillingOpen(true)} />
 
             {/* Main Chat Workspace */}
             <main className="flex-1 flex flex-col h-full min-w-0 relative">
@@ -227,8 +242,16 @@ export const ChatDashboard = () => {
                         </div>
                     </div>
 
-                    {/* Agent Selector (Auto / Chat / Search / Coding / PDF / PPT / Image) */}
-                    <div className="flex items-center gap-2">
+                    {/* Agent Selector & Credits Top-Up Badge */}
+                    <div className="flex items-center gap-3">
+                        <button
+                            onClick={() => setIsBillingOpen(true)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 text-xs font-semibold transition-all cursor-pointer shadow-sm shadow-amber-500/10"
+                            title="Click to view plans and buy credits"
+                        >
+                            <Coins className="w-3.5 h-3.5 text-amber-400" />
+                            <span>{user?.credits ?? 100} credits</span>
+                        </button>
                         <AgentSelector />
                     </div>
                 </header>
@@ -387,6 +410,13 @@ export const ChatDashboard = () => {
                     onClose={() => setActiveArtifact(null)}
                 />
             )}
+
+            {/* Buy Credits / Billing Modal */}
+            <BillingModal
+                isOpen={isBillingOpen}
+                onClose={() => setIsBillingOpen(false)}
+                user={user}
+            />
         </div>
     );
 };

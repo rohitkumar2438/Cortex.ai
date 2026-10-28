@@ -1,6 +1,42 @@
 import { multiAgentGraph } from "../graph/multiAgentGraph.js";
 
 const CHAT_SERVICE_URL = process.env.CHAT_SERVICE_URL || 'http://localhost:8002';
+const BILLING_SERVICE_URL = process.env.BILLING_SERVICE_URL || 'http://localhost:8004';
+
+/**
+ * Deducts credits per-agent call via billing-service.
+ * Throws 402 if credits are insufficient.
+ */
+export const deductCreditsBeforeRun = async (userId, agent) => {
+    if (!userId || userId === 'default') return null;
+
+    try {
+        const res = await fetch(`${BILLING_SERVICE_URL}/deduct`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ userId, agent })
+        });
+
+        if (res.status === 402) {
+            const data = await res.json().catch(() => ({}));
+            const error = new Error(data.error || 'Insufficient credits to run this agent.');
+            error.statusCode = 402;
+            error.requiredCredits = data.requiredCredits;
+            error.currentCredits = data.currentCredits;
+            throw error;
+        }
+
+        if (res.ok) {
+            return await res.json();
+        }
+    } catch (err) {
+        if (err.statusCode === 402) throw err;
+        console.warn('⚠️ Could not connect to billing-service for deduction (proceeding):', err.message);
+    }
+    return null;
+};
 
 /**
  * Saves a message into chat-service scoped to user.
@@ -74,6 +110,9 @@ export const executeAgentWorkflow = async ({
     // Stage 1: Thinking
     onStatusUpdate('Thinking', { step: 'routing', prompt });
 
+    // 0. Verify and deduct credits (blocks with 402 if balance is insufficient)
+    const deductionResult = await deductCreditsBeforeRun(userId, agent);
+
     // 1. Persist user message if conversationId provided
     if (conversationId && conversationId !== 'default' && userId) {
         await persistMessage(conversationId, userId, {
@@ -129,7 +168,8 @@ export const executeAgentWorkflow = async ({
         images,
         artifact,
         url: downloadUrl,
-        conversationId
+        conversationId,
+        remainingCredits: deductionResult?.remainingCredits
     };
 };
 

@@ -1,11 +1,46 @@
 import mongoose from 'mongoose';
 
-const userSchema = new mongoose.Schema({
-  uid: { type: String, required: true, unique: true }, // Firebase UID
-  email: { type: String, required: true },
-  name: String,
-  picture: String,
-  credits: { type: Number, default: 100 }, // Starting credits
-}, { timestamps: true });
+const userSchema = new mongoose.Schema(
+    {
+        firebaseUid: {
+            type: String,
+            required: true,
+            unique: true,
+            index: true
+        },
+        email: {
+            type: String,
+            required: true
+        },
+        name: {
+            type: String,
+            default: ''
+        },
+        avatar: {
+            type: String,
+            default: ''
+        },
+        credits: {
+            type: Number,
+            default: 100
+        },
+        plan: {
+            type: String,
+            enum: ['Free', 'Starter', 'Pro', 'Enterprise'],
+            default: 'Free'
+        }
+    },
+    {
+        timestamps: true,
+        collection: 'users',
+        toJSON: { virtuals: true },
+        toObject: { virtuals: true }
+    }
+);
 
-export default mongoose.model('User', userSchema);
+userSchema.virtual('uid').get(function () {
+    return this.firebaseUid;
+});
+
+const User = mongoose.model('User', userSchema);
+export default User;

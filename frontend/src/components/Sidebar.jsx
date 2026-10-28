@@ -18,7 +18,7 @@ import {
     Sparkles
 } from 'lucide-react';
 
-export const Sidebar = () => {
+export const Sidebar = ({ onOpenBilling }) => {
     const dispatch = useDispatch();
     const { conversations, activeConversationId, loadingConversations } = useSelector((state) => state.chat);
     const { user } = useSelector((state) => state.auth);
@@ -143,16 +143,21 @@ export const Sidebar = () => {
                                 <p className="text-xs font-semibold text-white truncate leading-tight">
                                     {user.name || 'User'}
                                 </p>
-                                <div className="flex items-center gap-1 text-[11px] text-amber-400 font-medium">
-                                    <Coins className="w-3 h-3" />
+                                <button
+                                    onClick={onOpenBilling}
+                                    className="flex items-center gap-1 text-[11px] text-amber-400 font-medium hover:text-amber-300 transition-colors cursor-pointer group"
+                                    title="Click to buy more credits"
+                                >
+                                    <Coins className="w-3 h-3 group-hover:scale-110 transition-transform" />
                                     <span>{user.credits ?? 100} credits</span>
-                                </div>
+                                    <span className="text-[10px] text-indigo-400 font-bold ml-1 bg-indigo-950/80 px-1 rounded border border-indigo-800/50">+</span>
+                                </button>
                             </div>
                         </div>
 
                         <button
                             onClick={() => dispatch(logoutUser())}
-                            className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition-colors"
+                            className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
                             title="Sign out"
                         >
                             <LogOut className="w-4 h-4" />

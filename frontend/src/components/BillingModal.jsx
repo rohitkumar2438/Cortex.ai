@@ -1,234 +1,293 @@
 import React, { useState } from 'react';
-import axios from 'axios';
-import { Check, Zap, Sparkles, X, ShieldCheck } from 'lucide-react';
+import { useDispatch } from 'react-redux';
+import { updateUserCredits } from '../store/slices/authSlice.js';
+import { addToast } from '../store/slices/uiSlice.js';
+import { Check, Zap, Sparkles, X, ShieldCheck, Coins } from 'lucide-react';
 
-const PLANS = [
-  {
-    id: 'Starter',
-    name: 'Starter Plan',
-    price: 199,
-    credits: 500,
-    features: [
-      '500 AI Agent Credits',
-      'All 8 Specialized Agents',
-      'Full Artifact Workspace',
-      'Standard Response Speed'
-    ],
-    popular: false
-  },
-  {
-    id: 'Pro',
-    name: 'Pro Plan',
-    price: 499,
-    credits: 1000,
-    features: [
-      '1000 AI Agent Credits',
-      'Priority LangGraph Execution',
-      'Unlimited Code & File Generation',
-      'Advanced Qdrant Document RAG',
-      'Full AWS S3 Cloud Sync'
-    ],
-    popular: true
-  }
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
+const CREDIT_PACKS = [
+    {
+        id: 'pack_100',
+        name: 'Starter Pack',
+        credits: 100,
+        priceINR: 99,
+        popular: false,
+        features: [
+            '100 AI credits',
+            'Access to Chat & Web Search',
+            'Standard generation speed',
+            'Community support'
+        ]
+    },
+    {
+        id: 'pack_500',
+        name: 'Pro Pack',
+        credits: 500,
+        priceINR: 399,
+        popular: true,
+        features: [
+            '500 AI credits',
+            'DeepSeek Coding Agent & Live Previews',
+            'Full PDF & PowerPoint generation',
+            'Priority queue execution'
+        ]
+    },
+    {
+        id: 'pack_1000',
+        name: 'Enterprise Pack',
+        credits: 1000,
+        priceINR: 699,
+        popular: false,
+        features: [
+            '1,000 AI credits (Best Value)',
+            'Unlimited high-res image generation',
+            'Full Artifact Workspace sync',
+            'Highest speed & throughput'
+        ]
+    }
 ];
 
-function BillingModal({ isOpen, onClose, user, onCreditsUpdated }) {
-  const [selectedPlan, setSelectedPlan] = useState(PLANS[1]); // Default to Pro
-  const [loading, setLoading] = useState(false);
+export const BillingModal = ({ isOpen, onClose, user }) => {
+    const dispatch = useDispatch();
+    const [selectedPack, setSelectedPack] = useState(CREDIT_PACKS[1]); // Default to 500
+    const [loading, setLoading] = useState(false);
 
-  if (!isOpen) return null;
+    if (!isOpen) return null;
 
-  const loadRazorpayScript = () => {
-    return new Promise((resolve) => {
-      const script = document.createElement("script");
-      script.src = "https://checkout.razorpay.com/v1/checkout.js";
-      script.onload = () => resolve(true);
-      script.onerror = () => resolve(false);
-      document.body.appendChild(script);
-    });
-  };
+    const loadRazorpayScript = () => {
+        return new Promise((resolve) => {
+            if (window.Razorpay) return resolve(true);
+            const script = document.createElement("script");
+            script.src = "https://checkout.razorpay.com/v1/checkout.js";
+            script.onload = () => resolve(true);
+            script.onerror = () => resolve(false);
+            document.body.appendChild(script);
+        });
+    };
 
-  const handlePayment = async () => {
-    setLoading(true);
-    const scriptLoaded = await loadRazorpayScript();
+    const handleCheckout = async () => {
+        setLoading(true);
+        const scriptLoaded = await loadRazorpayScript();
 
-    if (!scriptLoaded) {
-      alert("Razorpay payment gateway failed to load. Please check your internet connection.");
-      setLoading(false);
-      return;
-    }
-
-    try {
-      // 1. Create order on backend
-      const result = await axios.post("http://localhost:8000/billing/create-order", {
-        amount: selectedPlan.price,
-        planName: selectedPlan.id
-      }, { withCredentials: true });
-
-      if (!result.data.order) {
-        alert("Failed to initialize payment order.");
-        setLoading(false);
-        return;
-      }
-
-      const { amount, id: order_id, currency } = result.data.order;
-
-      // 2. Mock mode handling for local development
-      if (result.data.isMock) {
-        const verifyResult = await axios.post("http://localhost:8000/billing/verify", {
-          userId: user.uid,
-          creditsToAdd: selectedPlan.credits,
-          planName: selectedPlan.id,
-          isMock: true
-        }, { withCredentials: true });
-
-        if (verifyResult.data.success) {
-          alert(`🎉 Payment Successful! ${selectedPlan.credits} credits added to your account.`);
-          if (onCreditsUpdated) onCreditsUpdated(verifyResult.data.credits, selectedPlan.id);
-          onClose();
+        if (!scriptLoaded) {
+            dispatch(addToast({ message: "Razorpay payment checkout failed to load. Check connection.", type: 'error' }));
+            setLoading(false);
+            return;
         }
-        setLoading(false);
-        return;
-      }
 
-      // 3. Live/Test Razorpay Modal
-      const options = {
-        key: result.data.key_id,
-        amount: amount.toString(),
-        currency: currency,
-        name: "Cortex AI Platform",
-        description: `Upgrade to ${selectedPlan.name} (${selectedPlan.credits} credits)`,
-        order_id: order_id,
-        handler: async function (response) {
-          const data = {
-            razorpay_payment_id: response.razorpay_payment_id,
-            razorpay_order_id: response.razorpay_order_id,
-            razorpay_signature: response.razorpay_signature,
-            userId: user.uid,
-            creditsToAdd: selectedPlan.credits,
-            planName: selectedPlan.id
-          };
+        try {
+            // 1. Create Order on Backend
+            const res = await fetch(`${API_BASE}/billing/order`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-user-id': user?.userId || user?.firebaseUid || user?.uid || ''
+                },
+                body: JSON.stringify({
+                    packId: selectedPack.id,
+                    userId: user?.userId || user?.firebaseUid || user?.uid || ''
+                })
+            });
 
-          const verifyResult = await axios.post("http://localhost:8000/billing/verify", data, { withCredentials: true });
+            const data = await res.json();
+            if (!res.ok || !data.order) {
+                throw new Error(data.error || "Failed to initialize checkout order.");
+            }
 
-          if (verifyResult.data.success) {
-            alert(`🎉 Payment Verified! ${selectedPlan.credits} credits added.`);
-            if (onCreditsUpdated) onCreditsUpdated(verifyResult.data.credits, selectedPlan.id);
-            onClose();
-          } else {
-            alert("Payment signature verification failed.");
-          }
-        },
-        prefill: {
-          name: user.name || user.displayName || "User",
-          email: user.email || "user@example.com",
-        },
-        theme: {
-          color: "#4F46E5",
-        },
-      };
+            const { order, key_id, isMock } = data;
 
-      const paymentObject = new window.Razorpay(options);
-      paymentObject.open();
-    } catch (error) {
-      console.error('Payment error:', error);
-      alert("Payment processing error. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  };
+            // 2. Mock mode verification for dev environments
+            if (isMock) {
+                const verifyRes = await fetch(`${API_BASE}/billing/verify`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-user-id': user?.userId || user?.firebaseUid || user?.uid || ''
+                    },
+                    body: JSON.stringify({
+                        razorpay_order_id: order.id,
+                        razorpay_payment_id: `pay_mock_${Date.now()}`,
+                        razorpay_signature: 'mock_signature',
+                        userId: user?.userId || user?.firebaseUid || user?.uid || '',
+                        isMock: true
+                    })
+                });
 
-  return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 font-sans">
-      <div className="bg-white rounded-3xl shadow-2xl max-w-xl w-full border border-gray-100 overflow-hidden flex flex-col">
-        {/* Modal Header */}
-        <div className="p-6 pb-4 flex items-center justify-between border-b border-gray-100">
-          <div>
-            <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-              <Sparkles className="h-5 w-5 text-indigo-600" />
-              Upgrade Your Cortex AI Plan
-            </h2>
-            <p className="text-xs text-gray-500 mt-0.5">Choose a credit bundle to unlock advanced multi-agent capabilities.</p>
-          </div>
-          <button 
-            onClick={onClose} 
-            className="p-1.5 rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
+                const verifyData = await verifyRes.json();
+                if (verifyData.success) {
+                    dispatch(updateUserCredits(verifyData.credits));
+                    dispatch(addToast({ message: `🎉 ${selectedPack.credits} credits added to your account!`, type: 'success' }));
+                    onClose();
+                }
+                setLoading(false);
+                return;
+            }
 
-        {/* Plan Selection Cards */}
-        <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
-          {PLANS.map((plan) => {
-            const isSelected = selectedPlan.id === plan.id;
-            return (
-              <div
-                key={plan.id}
-                onClick={() => setSelectedPlan(plan)}
-                className={`relative p-5 rounded-2xl border-2 cursor-pointer transition-all flex flex-col justify-between ${isSelected ? 'border-indigo-600 bg-indigo-50/30 shadow-md' : 'border-gray-200 hover:border-gray-300 bg-white'}`}
-              >
-                {plan.popular && (
-                  <span className="absolute -top-3 right-4 px-2.5 py-0.5 bg-indigo-600 text-white text-[10px] font-bold rounded-full uppercase tracking-wider shadow-sm">
-                    Most Popular
-                  </span>
-                )}
-                <div>
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-bold text-gray-900 text-base">{plan.name}</h3>
-                    <div className={`h-4 w-4 rounded-full border flex items-center justify-center ${isSelected ? 'border-indigo-600 bg-indigo-600' : 'border-gray-300'}`}>
-                      {isSelected && <div className="h-1.5 w-1.5 bg-white rounded-full" />}
+            // 3. Live Razorpay Popup Checkout
+            const options = {
+                key: key_id,
+                amount: order.amount.toString(),
+                currency: order.currency || "INR",
+                name: "Cortex AI Platform",
+                description: `${selectedPack.name} (${selectedPack.credits} Credits)`,
+                order_id: order.id,
+                prefill: {
+                    name: user?.name || "Cortex User",
+                    email: user?.email || "user@cortex.ai"
+                },
+                theme: {
+                    color: "#6366f1" // Indigo 500
+                },
+                handler: async (response) => {
+                    try {
+                        const verifyRes = await fetch(`${API_BASE}/billing/verify`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'x-user-id': user?.userId || user?.firebaseUid || user?.uid || ''
+                            },
+                            body: JSON.stringify({
+                                razorpay_order_id: response.razorpay_order_id,
+                                razorpay_payment_id: response.razorpay_payment_id,
+                                razorpay_signature: response.razorpay_signature,
+                                userId: user?.userId || user?.firebaseUid || user?.uid || ''
+                            })
+                        });
+
+                        const verifyData = await verifyRes.json();
+                        if (verifyData.success) {
+                            dispatch(updateUserCredits(verifyData.credits));
+                            dispatch(addToast({ message: `🎉 Payment successful! ${selectedPack.credits} credits added!`, type: 'success' }));
+                            onClose();
+                        } else {
+                            throw new Error(verifyData.error || "Payment verification failed.");
+                        }
+                    } catch (verifyErr) {
+                        dispatch(addToast({ message: verifyErr.message, type: 'error' }));
+                    }
+                }
+            };
+
+            const rzp = new window.Razorpay(options);
+            rzp.on('payment.failed', (failRes) => {
+                dispatch(addToast({ message: failRes.error?.description || "Payment failed.", type: 'error' }));
+            });
+            rzp.open();
+
+        } catch (err) {
+            console.error('Checkout error:', err);
+            dispatch(addToast({ message: err.message || "Failed to initialize payment.", type: 'error' }));
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+            <div className="relative w-full max-w-2xl rounded-3xl bg-slate-900 border border-indigo-900/50 shadow-2xl overflow-hidden p-6 sm:p-8">
+                {/* Close Button */}
+                <button
+                    onClick={onClose}
+                    className="absolute top-5 right-5 p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition-colors cursor-pointer"
+                >
+                    <X className="w-5 h-5" />
+                </button>
+
+                {/* Modal Header */}
+                <div className="text-center mb-8">
+                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 text-xs font-semibold mb-3">
+                        <Coins className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Instant Top-Up</span>
                     </div>
-                  </div>
-                  <div className="mt-2 flex items-baseline gap-1">
-                    <span className="text-2xl font-black text-gray-900">₹{plan.price}</span>
-                    <span className="text-xs text-gray-500 font-medium">one-time</span>
-                  </div>
-                  <div className="mt-1 text-xs font-semibold text-indigo-600">
-                    +{plan.credits} AI Credits
-                  </div>
-
-                  <ul className="mt-4 space-y-2">
-                    {plan.features.map((feat, i) => (
-                      <li key={i} className="text-xs text-gray-600 flex items-center gap-2">
-                        <Check className="h-3.5 w-3.5 text-indigo-600 shrink-0" />
-                        <span>{feat}</span>
-                      </li>
-                    ))}
-                  </ul>
+                    <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+                        Power Up Your AI Workflow
+                    </h2>
+                    <p className="text-sm text-slate-400 mt-1.5 max-w-md mx-auto">
+                        Choose a credit pack to unlock DeepSeek Coding, Live Search, PDF reports, and PPT generation.
+                    </p>
                 </div>
-              </div>
-            );
-          })}
-        </div>
 
-        {/* Modal Footer */}
-        <div className="p-6 pt-3 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
-          <div className="flex items-center gap-1.5 text-xs text-gray-500">
-            <ShieldCheck className="h-4 w-4 text-emerald-600" />
-            <span>Secure 256-bit Razorpay Checkout</span>
-          </div>
+                {/* 3 Credit Packs Grid (100 / 500 / 1000) */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                    {CREDIT_PACKS.map((pack) => {
+                        const isSelected = selectedPack.id === pack.id;
 
-          <div className="flex gap-3">
-            <button
-              onClick={onClose}
-              className="px-4 py-2 text-xs font-semibold text-gray-600 hover:text-gray-800 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handlePayment}
-              disabled={loading}
-              className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-md transition-all flex items-center gap-2 disabled:opacity-50"
-            >
-              <Zap className="h-3.5 w-3.5" />
-              {loading ? "Processing..." : `Pay ₹${selectedPlan.price} via Razorpay`}
-            </button>
-          </div>
+                        return (
+                            <div
+                                key={pack.id}
+                                onClick={() => setSelectedPack(pack)}
+                                className={`relative p-5 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between ${
+                                    isSelected
+                                        ? 'bg-indigo-950/40 border-indigo-500 ring-2 ring-indigo-500/30 shadow-xl'
+                                        : 'bg-slate-950/60 border-indigo-950/60 hover:border-indigo-800/80 hover:bg-slate-950'
+                                }`}
+                            >
+                                {pack.popular && (
+                                    <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-2.5 py-0.5 rounded-full bg-gradient-to-r from-indigo-500 to-violet-600 text-white font-bold text-[10px] uppercase tracking-wider shadow-md">
+                                        Popular
+                                    </div>
+                                )}
+
+                                <div>
+                                    <h3 className="font-bold text-white text-base mb-1">{pack.name}</h3>
+                                    <div className="flex items-baseline gap-1 my-2">
+                                        <span className="text-2xl font-extrabold text-white">₹{pack.priceINR}</span>
+                                        <span className="text-xs text-slate-400 font-medium">/ pack</span>
+                                    </div>
+
+                                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-900/40 border border-indigo-700/40 text-amber-300 font-semibold text-xs mb-4">
+                                        <Coins className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                        <span>{pack.credits} Credits</span>
+                                    </div>
+
+                                    <ul className="space-y-2 text-[11px] text-slate-400 mb-4">
+                                        {pack.features.map((feat, idx) => (
+                                            <li key={idx} className="flex items-center gap-1.5">
+                                                <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                                                <span>{feat}</span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+
+                                <div className={`w-full py-2 rounded-xl text-center text-xs font-semibold transition-all ${
+                                    isSelected
+                                        ? 'bg-indigo-600 text-white'
+                                        : 'bg-slate-800 text-slate-300'
+                                }`}>
+                                    {isSelected ? 'Selected' : 'Select'}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+
+                {/* Checkout Action Button */}
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-indigo-950/60">
+                    <div className="flex items-center gap-2 text-xs text-slate-400">
+                        <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                        <span>Secured by Razorpay • UPI, Cards & NetBanking</span>
+                    </div>
+
+                    <button
+                        onClick={handleCheckout}
+                        disabled={loading}
+                        className="w-full sm:w-auto px-6 py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-semibold text-sm shadow-lg shadow-indigo-600/30 transition-all disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                        {loading ? (
+                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                            <>
+                                <Zap className="w-4 h-4 fill-white" />
+                                <span>Get {selectedPack.credits} Credits for ₹{selectedPack.priceINR}</span>
+                            </>
+                        )}
+                    </button>
+                </div>
+            </div>
         </div>
-      </div>
-    </div>
-  );
-}
+    );
+};
 
 export default BillingModal;

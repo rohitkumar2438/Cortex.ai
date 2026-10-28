@@ -32,7 +32,8 @@ export const handleRun = async (req, res, next) => {
             images: result.images || [],
             url: result.url || null,
             artifact: result.artifact || null,
-            conversationId: result.conversationId
+            conversationId: result.conversationId,
+            remainingCredits: result.remainingCredits
         });
     } catch (err) {
         next(err);
@@ -85,7 +86,8 @@ export const handleStream = async (req, res, next) => {
             agent: result.agent,
             images: result.images || [],
             url: result.url || null,
-            artifact: result.artifact || null
+            artifact: result.artifact || null,
+            remainingCredits: result.remainingCredits
         });
 
         // Emit done event
