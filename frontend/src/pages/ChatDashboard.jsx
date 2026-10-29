@@ -62,6 +62,7 @@ export const ChatDashboard = () => {
     const fileInputRef = useRef(null);
     const recognitionRef = useRef(null);
     const basePromptRef = useRef('');
+    const latestTranscriptRef = useRef('');
 
     // Initial load: fetch conversations
     useEffect(() => {
@@ -113,7 +114,7 @@ export const ChatDashboard = () => {
     }, []);
 
     // Speech-to-Text (STT) Toggle Handler
-    const toggleVoiceInput = async () => {
+    const toggleVoiceInput = () => {
         if (isListening) {
             if (recognitionRef.current) {
                 try {
@@ -121,6 +122,13 @@ export const ChatDashboard = () => {
                 } catch (e) {}
             }
             setIsListening(false);
+
+            // Auto-send spoken query if captured
+            const captured = latestTranscriptRef.current.trim();
+            if (captured && !isStreaming) {
+                latestTranscriptRef.current = '';
+                handleSend(captured);
+            }
             return;
         }
 
@@ -133,34 +141,19 @@ export const ChatDashboard = () => {
             return;
         }
 
-        // 1. Explicitly request microphone access to trigger browser permission prompt
-        try {
-            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                // Stop the test stream immediately so SpeechRecognition can take over the mic hardware
-                stream.getTracks().forEach(track => track.stop());
-            }
-        } catch (micErr) {
-            console.warn('Microphone permission error:', micErr);
-            dispatch(addToast({
-                message: 'Microphone permission denied. Click the lock/tune icon in your URL address bar and choose "Allow" for microphone.',
-                type: 'error'
-            }));
-            return;
-        }
-
         try {
             const recognition = new SpeechRecognition();
             recognition.continuous = true;
             recognition.interimResults = true;
-            recognition.lang = 'en-US';
+            recognition.lang = navigator.language || 'en-IN';
 
             basePromptRef.current = inputPrompt;
+            latestTranscriptRef.current = '';
 
             recognition.onstart = () => {
                 setIsListening(true);
                 dispatch(addToast({
-                    message: '🎙️ Listening... Speak your prompt now.',
+                    message: '🎙️ Listening... Speak into your mic now.',
                     type: 'info'
                 }));
             };
@@ -180,25 +173,27 @@ export const ChatDashboard = () => {
                 const spoken = (final + interim).trim();
                 if (spoken) {
                     const base = basePromptRef.current.trim();
-                    setInputPrompt(base ? `${base} ${spoken}` : spoken);
+                    const fullText = base ? `${base} ${spoken}` : spoken;
+                    latestTranscriptRef.current = fullText;
+                    setInputPrompt(fullText);
                 }
             };
 
             recognition.onerror = (event) => {
-                console.warn('Speech recognition event error:', event.error);
-                if (event.error === 'not-allowed') {
+                console.warn('Speech recognition error event:', event.error);
+                if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
                     dispatch(addToast({
-                        message: 'Microphone access blocked. Click the lock icon in the URL bar and allow Microphone.',
+                        message: 'Microphone blocked. Click the lock/tune icon on your browser address bar and choose Allow.',
                         type: 'error'
                     }));
                 } else if (event.error === 'network') {
                     dispatch(addToast({
-                        message: 'Speech recognition network error. Please check your internet connection.',
+                        message: 'Speech recognition requires an internet connection (Google Speech engine).',
                         type: 'error'
                     }));
                 } else if (event.error === 'audio-capture') {
                     dispatch(addToast({
-                        message: 'No microphone found on this device. Please connect a microphone.',
+                        message: 'No microphone found on your computer.',
                         type: 'error'
                     }));
                 }
@@ -207,6 +202,12 @@ export const ChatDashboard = () => {
 
             recognition.onend = () => {
                 setIsListening(false);
+                // When user pauses and voice ends, auto-send prompt!
+                const captured = latestTranscriptRef.current.trim();
+                if (captured && !isStreaming) {
+                    latestTranscriptRef.current = '';
+                    handleSend(captured);
+                }
             };
 
             recognitionRef.current = recognition;
@@ -790,6 +791,41 @@ export const ChatDashboard = () => {
                             className="hidden"
                             onChange={handleFileUpload}
                         />
+
+                        {/* Live Voice Recording Status Bar */}
+                        {isListening && (
+                            <div className="flex items-center justify-between px-3.5 py-2 bg-rose-500/10 border-b border-rose-500/20 text-rose-300 text-xs">
+                                <div className="flex items-center gap-2 truncate">
+                                    <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping shrink-0" />
+                                    <span className="font-semibold text-rose-400 shrink-0">Live Voice:</span>
+                                    <span className="italic truncate text-slate-200 font-normal">
+                                        {inputPrompt || "Speak now... Auto-sends when done"}
+                                    </span>
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
+                                    {inputPrompt.trim() && (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const toSend = inputPrompt.trim();
+                                                toggleVoiceInput();
+                                                handleSend(toSend);
+                                            }}
+                                            className="px-2.5 py-1 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-[11px] cursor-pointer shadow-sm"
+                                        >
+                                            Send Spoken Prompt
+                                        </button>
+                                    )}
+                                    <button
+                                        type="button"
+                                        onClick={toggleVoiceInput}
+                                        className="px-2 py-1 rounded-md bg-white/[0.08] hover:bg-white/[0.14] text-slate-300 text-[11px] cursor-pointer"
+                                    >
+                                        Stop
+                                    </button>
+                                </div>
+                            </div>
+                        )}
 
                         {/* Prompt Input Textarea */}
                         <textarea
