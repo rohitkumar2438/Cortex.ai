@@ -33,10 +33,8 @@ router.post('/transcribe', memoryUpload.single('audio'), async (req, res) => {
         const extension = mimeType.includes('mp4') ? 'mp4' : mimeType.includes('wav') ? 'wav' : 'webm';
         const audioBlob = new Blob([req.file.buffer], { type: mimeType });
         formData.append('file', audioBlob, `speech.${extension}`);
-        formData.append('model', 'whisper-large-v3-turbo');
+        formData.append('model', 'whisper-large-v3');
         formData.append('temperature', '0');
-        // Prevent silence hallucination by setting acoustic prompt context
-        formData.append('prompt', 'A question, coding prompt, technical query, or conversation.');
 
         const groqRes = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
             method: 'POST',
@@ -56,25 +54,24 @@ router.post('/transcribe', memoryUpload.single('audio'), async (req, res) => {
         console.log(`🎙️ [Whisper AI] Transcribed: "${transcription}" (audio size: ${req.file.size} bytes)`);
 
         const clean = transcription.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
-        const SILENCE_CLEAN = [
-            'thank you',
-            'thank you so much',
-            'thank you very much',
-            'thank you for watching',
-            'thanks for watching',
-            'subtitles by',
-            'subtitles',
-            'bye',
-            'you',
-            ''
-        ];
 
-        if (!clean || SILENCE_CLEAN.includes(clean)) {
+        // Detect any repetitive silence hallucinations (e.g. "Thank you. Thank you.", "Thanks for watching", etc.)
+        const strippedOfHallucinations = clean
+            .replace(/thank(s)?(\s*you)?/gi, '')
+            .replace(/for\s*watching/gi, '')
+            .replace(/so\s*much/gi, '')
+            .replace(/very\s*much/gi, '')
+            .replace(/subtitles\s*(by)?/gi, '')
+            .replace(/bye/gi, '')
+            .replace(/you/gi, '')
+            .trim();
+
+        if (!clean || strippedOfHallucinations.length === 0) {
             console.warn(`⚠️ [Whisper AI] Detected silence/empty audio (hallucination filtered: "${transcription}")`);
             return res.json({
                 success: false,
                 text: '',
-                error: 'No clear speech detected. Please speak louder into your microphone.'
+                error: 'No human voice detected. Please speak louder into your microphone.'
             });
         }
 

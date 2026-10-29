@@ -218,19 +218,18 @@ export const ChatDashboard = () => {
         }
     };
 
-    // Speech-to-Text (STT) Toggle Handler: High-Reliability Dual STT (Live WebSpeech + Groq Whisper AI)
+    // Speech-to-Text (STT) Toggle Handler: High-Performance Dedicated MediaRecorder + Groq Whisper AI
     const toggleVoiceInput = async () => {
         if (isListening) {
-            // User requested STOP -> Stop both engines
+            // User requested STOP -> Stop recording (triggers onstop)
             setIsListening(false);
 
-            if (recognitionRef.current) {
-                try { recognitionRef.current.stop(); } catch (e) {}
-                recognitionRef.current = null;
-            }
-
             if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-                try { mediaRecorderRef.current.stop(); } catch (e) {}
+                try {
+                    mediaRecorderRef.current.stop();
+                } catch (e) {
+                    console.warn('Error stopping MediaRecorder:', e);
+                }
             }
             return;
         }
@@ -244,6 +243,7 @@ export const ChatDashboard = () => {
 
             loadAudioDevices();
 
+            // Single dedicated exclusive microphone stream
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: selectedMicId ? { deviceId: { exact: selectedMicId } } : true
             });
@@ -251,7 +251,7 @@ export const ChatDashboard = () => {
             audioChunksRef.current = [];
             maxVolumeRef.current = 0;
 
-            // Real-time Audio Visualizer & Level Monitor
+            // Live Audio Level Visualizer (uses existing stream without collision)
             try {
                 const AudioCtx = window.AudioContext || window.webkitAudioContext;
                 if (AudioCtx) {
@@ -261,6 +261,7 @@ export const ChatDashboard = () => {
                     const source = audioCtx.createMediaStreamSource(stream);
                     const analyser = audioCtx.createAnalyser();
                     analyser.fftSize = 64;
+                    analyser.smoothingTimeConstant = 0.5;
                     source.connect(analyser);
 
                     const dataArray = new Uint8Array(analyser.frequencyBinCount);
@@ -316,108 +317,85 @@ export const ChatDashboard = () => {
                 }
                 setMicVolume(0);
 
-                // 1. If WebSpeech captured text, send it immediately!
-                const webSpeechText = (latestTranscriptRef.current || '').trim();
-                if (webSpeechText) {
-                    latestTranscriptRef.current = '';
-                    setInputPrompt(webSpeechText);
+                if (chunks.length === 0) {
                     dispatch(addToast({
-                        message: `🎙️ "${webSpeechText.substring(0, 45)}${webSpeechText.length > 45 ? '...' : ''}"`,
-                        type: 'success'
+                        message: 'No audio recorded. Please ensure your microphone is plugged in.',
+                        type: 'warning'
                     }));
-                    handleSend(webSpeechText);
                     return;
                 }
 
-                // 2. Otherwise, transcribe audio with Groq Whisper AI!
-                if (chunks.length > 0) {
-                    const audioBlob = new Blob(chunks, { type: mimeType || 'audio/webm' });
-                    if (audioBlob.size > 500) {
-                        setIsTranscribingAudio(true);
-                        dispatch(addToast({
-                            message: '⚡ Transcribing audio with Groq Whisper AI...',
-                            type: 'info'
-                        }));
+                const audioBlob = new Blob(chunks, { type: mimeType || 'audio/webm' });
+                console.log(`🎙️ [Voice STT] Recorded ${chunks.length} chunks, total size: ${audioBlob.size} bytes (${mimeType})`);
 
-                        try {
-                            const formData = new FormData();
-                            const extension = mimeType.includes('mp4') ? 'mp4' : 'webm';
-                            formData.append('audio', audioBlob, `speech.${extension}`);
-
-                            const res = await fetch(`${API_BASE}/agent/transcribe`, {
-                                method: 'POST',
-                                headers: { 'x-user-id': user?.userId || '' },
-                                body: formData
-                            });
-
-                            if (res.ok) {
-                                const data = await res.json();
-                                const transcribed = (data.text || '').trim();
-                                if (data.success && transcribed) {
-                                    setInputPrompt(transcribed);
-                                    dispatch(addToast({
-                                        message: `🎙️ "${transcribed.substring(0, 45)}${transcribed.length > 45 ? '...' : ''}"`,
-                                        type: 'success'
-                                    }));
-                                    handleSend(transcribed);
-                                    return;
-                                }
-                            }
-                        } catch (err) {
-                            console.error('Whisper transcribe error:', err);
-                        } finally {
-                            setIsTranscribingAudio(false);
-                        }
-                    }
+                if (audioBlob.size < 500) {
+                    dispatch(addToast({
+                        message: 'Audio too short or empty. Please speak into your microphone.',
+                        type: 'warning'
+                    }));
+                    return;
                 }
 
-                // 3. If neither recognized voice:
-                if (maxVolumeRef.current < 4) {
+                setIsTranscribingAudio(true);
+                dispatch(addToast({
+                    message: '⚡ Transcribing audio with Groq Whisper AI...',
+                    type: 'info'
+                }));
+
+                try {
+                    const formData = new FormData();
+                    const extension = mimeType.includes('mp4') ? 'mp4' : 'webm';
+                    formData.append('audio', audioBlob, `speech.${extension}`);
+
+                    const res = await fetch(`${API_BASE}/agent/transcribe`, {
+                        method: 'POST',
+                        headers: { 'x-user-id': user?.userId || '' },
+                        body: formData
+                    });
+
+                    if (res.ok) {
+                        const data = await res.json();
+                        const transcribed = (data.text || '').trim();
+
+                        // Strict client-side check to reject any silence hallucination
+                        const isHallucination = !transcribed ||
+                            transcribed.toLowerCase().replace(/thank(s)?(\s*you)?/gi, '').trim().length === 0;
+
+                        if (data.success && transcribed && !isHallucination) {
+                            setInputPrompt(transcribed);
+                            dispatch(addToast({
+                                message: `🎙️ "${transcribed.substring(0, 45)}${transcribed.length > 45 ? '...' : ''}"`,
+                                type: 'success'
+                            }));
+                            handleSend(transcribed);
+                            return;
+                        } else {
+                            dispatch(addToast({
+                                message: data.error || 'No human speech recognized. Please speak louder into your microphone.',
+                                type: 'warning'
+                            }));
+                        }
+                    } else {
+                        const errData = await res.json().catch(() => ({}));
+                        dispatch(addToast({
+                            message: errData.error || 'Transcription failed. Please try again.',
+                            type: 'error'
+                        }));
+                    }
+                } catch (err) {
+                    console.error('Whisper transcribe error:', err);
                     dispatch(addToast({
-                        message: '⚠️ Microphone volume was 0%. Your mic is muted in Windows (Fn+F4 key or Windows Sound Settings). Click the ⚙️ icon to test your mic.',
-                        type: 'warning'
+                        message: 'Network error connecting to Whisper STT.',
+                        type: 'error'
                     }));
-                } else {
-                    dispatch(addToast({
-                        message: 'No speech was recognized. Please speak closer to your microphone.',
-                        type: 'warning'
-                    }));
+                } finally {
+                    setIsTranscribingAudio(false);
                 }
             };
 
             mediaRecorderRef.current = mediaRecorder;
-            mediaRecorder.start();
+            mediaRecorder.start(250);
             setIsListening(true);
-            latestTranscriptRef.current = '';
-
-            // Optional live WebSpeech typing for immediate visual preview
-            const SpeechRecognition = typeof window !== 'undefined'
-                ? (window.SpeechRecognition || window.webkitSpeechRecognition)
-                : null;
-
-            if (SpeechRecognition) {
-                try {
-                    const recognition = new SpeechRecognition();
-                    recognition.continuous = true;
-                    recognition.interimResults = true;
-                    recognition.lang = navigator.language || 'en-IN';
-
-                    recognition.onresult = (event) => {
-                        let text = '';
-                        for (let i = 0; i < event.results.length; ++i) {
-                            text += event.results[i][0].transcript;
-                        }
-                        if (text.trim()) {
-                            latestTranscriptRef.current = text.trim();
-                            setInputPrompt(text.trim());
-                        }
-                    };
-
-                    recognition.onerror = () => {};
-                    recognitionRef.current = recognition;
-                    recognition.start();
-                } catch (e) {}
-            }
 
             dispatch(addToast({
                 message: '🎙️ Listening... Speak your prompt now, click "Stop & Send" when done.',
