@@ -8,6 +8,7 @@ import rateLimit from 'express-rate-limit';
 import cookieParser from 'cookie-parser';
 import { initRedis, getSession } from '../shared/redisClient.js';
 import { COOKIE_NAME } from '../shared/constants.js';
+import { openApiSpec, getSwaggerHtml } from './swagger.js';
 
 dotenv.config();
 
@@ -108,7 +109,21 @@ app.use('/chat', proxy(CHAT_SERVICE_URL, createProxyOptions()));
 app.use('/agent', proxy(AGENT_SERVICE_URL, createProxyOptions({ parseReqBody: false })));
 app.use('/billing', proxy(BILLING_SERVICE_URL, createProxyOptions()));
 
-// 7. Gateway Health and System Observability
+// 7. Interactive Swagger / OpenAPI Documentation
+app.get('/docs/openapi.json', (req, res) => {
+    res.json(openApiSpec);
+});
+
+app.get('/docs', (req, res) => {
+    res.setHeader('Content-Type', 'text/html');
+    res.send(getSwaggerHtml());
+});
+
+app.get('/api-docs', (req, res) => {
+    res.redirect('/docs');
+});
+
+// 8. Gateway Health and System Observability
 app.get('/health', (req, res) => {
     res.json({
         service: 'Cortex AI Gateway',
