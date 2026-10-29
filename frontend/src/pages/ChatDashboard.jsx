@@ -61,6 +61,7 @@ export const ChatDashboard = () => {
     const inputRef = useRef(null);
     const fileInputRef = useRef(null);
     const recognitionRef = useRef(null);
+    const basePromptRef = useRef('');
 
     // Initial load: fetch conversations
     useEffect(() => {
@@ -112,9 +113,13 @@ export const ChatDashboard = () => {
     }, []);
 
     // Speech-to-Text (STT) Toggle Handler
-    const toggleVoiceInput = () => {
+    const toggleVoiceInput = async () => {
         if (isListening) {
-            recognitionRef.current?.stop();
+            if (recognitionRef.current) {
+                try {
+                    recognitionRef.current.stop();
+                } catch (e) {}
+            }
             setIsListening(false);
             return;
         }
@@ -128,30 +133,75 @@ export const ChatDashboard = () => {
             return;
         }
 
+        // 1. Explicitly request microphone access to trigger browser permission prompt
+        try {
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                // Stop the test stream immediately so SpeechRecognition can take over the mic hardware
+                stream.getTracks().forEach(track => track.stop());
+            }
+        } catch (micErr) {
+            console.warn('Microphone permission error:', micErr);
+            dispatch(addToast({
+                message: 'Microphone permission denied. Click the lock/tune icon in your URL address bar and choose "Allow" for microphone.',
+                type: 'error'
+            }));
+            return;
+        }
+
         try {
             const recognition = new SpeechRecognition();
             recognition.continuous = true;
             recognition.interimResults = true;
             recognition.lang = 'en-US';
 
+            basePromptRef.current = inputPrompt;
+
             recognition.onstart = () => {
                 setIsListening(true);
+                dispatch(addToast({
+                    message: '🎙️ Listening... Speak your prompt now.',
+                    type: 'info'
+                }));
             };
 
             recognition.onresult = (event) => {
-                let finalTranscript = '';
-                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                let interim = '';
+                let final = '';
+
+                for (let i = 0; i < event.results.length; ++i) {
                     if (event.results[i].isFinal) {
-                        finalTranscript += event.results[i][0].transcript;
+                        final += event.results[i][0].transcript + ' ';
+                    } else {
+                        interim += event.results[i][0].transcript;
                     }
                 }
-                if (finalTranscript) {
-                    setInputPrompt(prev => prev ? `${prev} ${finalTranscript}` : finalTranscript);
+
+                const spoken = (final + interim).trim();
+                if (spoken) {
+                    const base = basePromptRef.current.trim();
+                    setInputPrompt(base ? `${base} ${spoken}` : spoken);
                 }
             };
 
             recognition.onerror = (event) => {
                 console.warn('Speech recognition event error:', event.error);
+                if (event.error === 'not-allowed') {
+                    dispatch(addToast({
+                        message: 'Microphone access blocked. Click the lock icon in the URL bar and allow Microphone.',
+                        type: 'error'
+                    }));
+                } else if (event.error === 'network') {
+                    dispatch(addToast({
+                        message: 'Speech recognition network error. Please check your internet connection.',
+                        type: 'error'
+                    }));
+                } else if (event.error === 'audio-capture') {
+                    dispatch(addToast({
+                        message: 'No microphone found on this device. Please connect a microphone.',
+                        type: 'error'
+                    }));
+                }
                 setIsListening(false);
             };
 
@@ -163,6 +213,10 @@ export const ChatDashboard = () => {
             recognition.start();
         } catch (err) {
             console.error('Failed to initiate SpeechRecognition:', err);
+            dispatch(addToast({
+                message: 'Could not start voice recognition: ' + (err.message || 'Unknown error'),
+                type: 'error'
+            }));
             setIsListening(false);
         }
     };
