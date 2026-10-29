@@ -367,19 +367,18 @@ export const ChatDashboard = () => {
                     </div>
 
                     {/* Top Action Controls (Export Chat, Credits Badge & Agent Selector) */}
-                    <div className="flex items-center gap-2.5">
+                    <div className="flex items-center gap-2 sm:gap-3">
                         <button
                             onClick={handleExportChat}
-                            disabled={messages.length === 0}
                             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
                                 messages.length > 0
-                                    ? 'bg-slate-900 hover:bg-slate-800 border-indigo-700/60 text-indigo-300 hover:text-white shadow-sm shadow-indigo-950'
-                                    : 'bg-slate-900/30 border-slate-800/40 text-slate-600 cursor-not-allowed opacity-60'
+                                    ? 'bg-indigo-950/60 hover:bg-indigo-900/90 border-indigo-500/50 text-indigo-200 hover:text-white shadow-sm shadow-indigo-900/30'
+                                    : 'bg-slate-900/40 border-slate-800 text-slate-500 hover:text-slate-400'
                             }`}
-                            title={messages.length > 0 ? "Export conversation history to Markdown file (.md)" : "Start chatting to enable Export"}
+                            title={messages.length > 0 ? "Export conversation history to Markdown file (.md)" : "Start chatting to export conversation"}
                         >
-                            <Download className={`w-3.5 h-3.5 ${messages.length > 0 ? 'text-indigo-400' : 'text-slate-600'}`} />
-                            <span className="hidden xs:inline">Export Chat</span>
+                            <Download className={`w-3.5 h-3.5 ${messages.length > 0 ? 'text-indigo-400' : 'text-slate-500'}`} />
+                            <span className="font-medium">Export Chat</span>
                         </button>
 
                         <button
