@@ -191,3 +191,4 @@ Where:
    - Compiled PDF reports via `PDFKit` (10.2 KB) and PowerPoint presentations via `PptxGenJS` (79.1 KB).
 6. **Chat Export:**
    - Generates and downloads clean GitHub-style Markdown (`.md`) conversation logs with one click.
+

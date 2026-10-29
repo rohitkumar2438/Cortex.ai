@@ -40,18 +40,22 @@ export const indexDocument = async ({ fileBuffer, fileName, mimeType, userId = '
     const chunkTexts = chunks.map(c => c.text);
     const embeddings = await embedDocuments(chunkTexts);
 
-    // 4. Format records for Vector Store
+    // 4. Format records for Vector Store (sanitize IDs for Pinecone compatibility)
     const nowIso = new Date().toISOString();
+    const cleanUserId = (userId || 'anon').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const cleanConvId = (conversationId || 'default').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const cleanDocId = safeDocName.replace(/[^a-zA-Z0-9_-]/g, '_');
+
     const records = chunks.map((chunk, index) => ({
-        id: `${userId || 'anon'}_${conversationId || 'default'}_${safeDocName}_${index}`,
+        id: `${cleanUserId}_${cleanConvId}_${cleanDocId}_${index}`,
         values: embeddings[index],
         metadata: {
             chunkIndex: index,
             docName: safeDocName,
             text: chunk.text,
-            userId,
-            conversationId,
-            pages,
+            userId: userId || 'anon',
+            conversationId: conversationId || 'default',
+            pages: pages || 1,
             uploadedAt: nowIso
         }
     }));

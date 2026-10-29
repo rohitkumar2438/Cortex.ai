@@ -339,55 +339,59 @@ export const ChatDashboard = () => {
     };
 
     return (
-        <div className="flex h-screen w-full bg-[#0b0f19] text-slate-100 overflow-hidden font-sans">
+        <div className="flex h-screen w-full bg-[#080b11] text-slate-100 overflow-hidden font-sans">
             <ToastContainer />
 
             {/* Collapsible Sidebar */}
             <Sidebar onOpenBilling={() => setIsBillingOpen(true)} />
 
             {/* Main Chat Workspace */}
-            <main className="flex-1 flex flex-col h-full min-w-0 relative">
+            <main className="flex-1 flex flex-col h-full min-w-0 relative bg-[#080b11]">
                 {/* Top Navigation Bar */}
-                <header className="h-14 border-b border-indigo-950/40 flex items-center justify-between px-4 bg-slate-950/60 backdrop-blur-md shrink-0 z-20">
+                <header className="h-14 border-b border-white/[0.06] flex items-center justify-between px-4 sm:px-6 bg-[#080b11]/80 backdrop-blur-xl shrink-0 z-20">
                     <div className="flex items-center gap-3">
                         {!sidebarOpen && (
                             <button
                                 onClick={() => dispatch(toggleSidebar())}
-                                className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-900 border border-indigo-950/60 transition-colors"
+                                className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/[0.06] border border-white/[0.08] transition-colors"
                                 title="Open sidebar"
                             >
                                 <PanelLeft className="w-4 h-4" />
                             </button>
                         )}
-                        <div className="flex items-center gap-3">
-                            <span className="font-semibold text-sm text-white truncate max-w-[200px] sm:max-w-md">
+                        <div className="flex items-center gap-2">
+                            <span className="text-xs text-slate-500 font-medium hidden sm:inline">Cortex AI</span>
+                            <span className="text-slate-600 hidden sm:inline">/</span>
+                            <span className="font-semibold text-sm text-slate-200 truncate max-w-[200px] sm:max-w-md">
                                 {conversations.find(c => (c._id || c.id) === activeConversationId)?.title || 'New Session'}
                             </span>
-                            <button
-                                onClick={handleExportChat}
-                                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium transition-all cursor-pointer ${
-                                    messages.length > 0
-                                        ? 'bg-indigo-950/80 hover:bg-indigo-900 border-indigo-500/60 text-indigo-200 hover:text-white shadow-sm shadow-indigo-950'
-                                        : 'bg-slate-900/40 border-slate-800 text-slate-500 hover:text-slate-400'
-                                }`}
-                                title={messages.length > 0 ? "Export conversation history to Markdown file (.md)" : "Start chatting to export conversation"}
-                            >
-                                <Download className={`w-3.5 h-3.5 ${messages.length > 0 ? 'text-indigo-400' : 'text-slate-500'}`} />
-                                <span>Export Chat</span>
-                            </button>
                         </div>
                     </div>
 
-                    {/* Top Action Controls (Credits Badge & Agent Selector) */}
-                    <div className="flex items-center gap-2 sm:gap-3">
+                    {/* Top Action Controls (Export Chat, Credits Badge & Model Selector) */}
+                    <div className="flex items-center gap-2.5">
+                        <button
+                            onClick={handleExportChat}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-medium transition-all cursor-pointer ${
+                                messages.length > 0
+                                    ? 'bg-white/[0.04] hover:bg-white/[0.08] border-white/[0.1] text-slate-200 hover:text-white shadow-sm'
+                                    : 'bg-white/[0.02] border-white/[0.04] text-slate-600 hover:text-slate-400'
+                            }`}
+                            title={messages.length > 0 ? "Export conversation history to Markdown file (.md)" : "Start chatting to export conversation"}
+                        >
+                            <Download className={`w-3.5 h-3.5 ${messages.length > 0 ? 'text-indigo-400' : 'text-slate-600'}`} />
+                            <span className="font-medium">Export</span>
+                        </button>
+
                         <button
                             onClick={() => setIsBillingOpen(true)}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 text-xs font-semibold transition-all cursor-pointer shadow-sm shadow-amber-500/10"
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/15 border border-amber-500/25 text-amber-300 text-xs font-semibold transition-all cursor-pointer shadow-sm shadow-amber-500/5"
                             title="Click to view plans and buy credits"
                         >
                             <Coins className="w-3.5 h-3.5 text-amber-400" />
                             <span>{user?.credits ?? 100} credits</span>
                         </button>
+
                         <AgentSelector />
                     </div>
                 </header>
@@ -414,20 +418,20 @@ export const ChatDashboard = () => {
                                         className={`flex gap-3 sm:gap-4 ${isUser ? 'justify-end' : 'justify-start'}`}
                                     >
                                         {!isUser && (
-                                            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-600 flex items-center justify-center shrink-0 shadow-md shadow-indigo-600/30">
+                                            <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-indigo-500 to-violet-600 flex items-center justify-center shrink-0 shadow-sm shadow-indigo-500/20">
                                                 <Bot className="w-4 h-4 text-white" />
                                             </div>
                                         )}
 
                                         <div
-                                            className={`max-w-[85%] sm:max-w-[80%] rounded-2xl px-4 py-3 sm:px-5 sm:py-3.5 shadow-lg ${
+                                            className={`max-w-[85%] sm:max-w-[78%] rounded-2xl px-4 py-3 sm:px-5 sm:py-3.5 transition-all ${
                                                 isUser
-                                                    ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-medium rounded-tr-sm'
-                                                    : 'bg-slate-900/90 border border-indigo-950/60 rounded-tl-sm'
+                                                    ? 'bg-[#181e2b] border border-white/[0.08] text-slate-100 rounded-tr-xs shadow-sm'
+                                                    : 'bg-white/[0.02] border border-white/[0.06] rounded-tl-xs shadow-sm text-slate-200'
                                             }`}
                                         >
                                             {isUser ? (
-                                                <p className="whitespace-pre-wrap text-sm leading-relaxed">{msg.content}</p>
+                                                <p className="whitespace-pre-wrap text-sm leading-relaxed font-normal">{msg.content}</p>
                                             ) : (
                                                 <>
                                                     <MarkdownRenderer
@@ -437,11 +441,11 @@ export const ChatDashboard = () => {
 
                                                     {/* Interactive Download Buttons (PDF, PPT, Image) */}
                                                     {downloadInfo && (
-                                                        <div className="mt-4 pt-3.5 border-t border-indigo-900/40 flex flex-wrap items-center justify-between gap-3 bg-indigo-950/40 -mx-2 -mb-1 p-3 rounded-xl">
-                                                            <div className="flex items-center gap-2 text-xs font-semibold text-indigo-300">
+                                                        <div className="mt-4 pt-3 border-t border-white/[0.06] flex flex-wrap items-center justify-between gap-3 bg-white/[0.02] -mx-2 -mb-1 p-2.5 rounded-xl border border-white/[0.04]">
+                                                            <div className="flex items-center gap-2 text-xs font-medium text-slate-300">
                                                                 {downloadInfo.isPdf && <FileText className="w-4 h-4 text-rose-400 shrink-0" />}
-                                                                {downloadInfo.isPpt && <Presentation className="w-4 h-4 text-orange-400 shrink-0" />}
-                                                                {downloadInfo.isImg && <ImageIcon className="w-4 h-4 text-purple-400 shrink-0" />}
+                                                                {downloadInfo.isPpt && <Presentation className="w-4 h-4 text-amber-400 shrink-0" />}
+                                                                {downloadInfo.isImg && <ImageIcon className="w-4 h-4 text-fuchsia-400 shrink-0" />}
                                                                 {!downloadInfo.isPdf && !downloadInfo.isPpt && !downloadInfo.isImg && (
                                                                     <Download className="w-4 h-4 text-indigo-400 shrink-0" />
                                                                 )}
@@ -453,7 +457,7 @@ export const ChatDashboard = () => {
                                                                 target="_blank"
                                                                 rel="noopener noreferrer"
                                                                 download
-                                                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-semibold text-xs shadow-md shadow-indigo-900/30 transition-all cursor-pointer no-underline"
+                                                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.08] hover:bg-white/[0.14] border border-white/[0.1] text-white font-medium text-xs shadow-sm transition-all cursor-pointer no-underline"
                                                             >
                                                                 <Download className="w-3.5 h-3.5" />
                                                                 <span>Download</span>
@@ -463,8 +467,8 @@ export const ChatDashboard = () => {
 
                                                     {/* Interactive Artifact Button Card (Restores on Reload) */}
                                                     {hasArtifact && (
-                                                        <div className="mt-4 pt-3.5 border-t border-indigo-900/40 flex flex-wrap items-center justify-between gap-3 bg-indigo-950/30 -mx-2 -mb-1 p-3 rounded-xl">
-                                                            <div className="flex items-center gap-2 text-xs font-semibold text-indigo-300">
+                                                        <div className="mt-4 pt-3 border-t border-white/[0.06] flex flex-wrap items-center justify-between gap-3 bg-white/[0.02] -mx-2 -mb-1 p-2.5 rounded-xl border border-white/[0.04]">
+                                                            <div className="flex items-center gap-2 text-xs font-medium text-slate-300">
                                                                 <FileCode className="w-4 h-4 text-emerald-400 shrink-0" />
                                                                 <span>
                                                                     {msg.artifact.files.length} project file{msg.artifact.files.length === 1 ? '' : 's'} • {msg.artifact.language || 'Web App'}
@@ -472,9 +476,9 @@ export const ChatDashboard = () => {
                                                             </div>
                                                             <button
                                                                 onClick={() => setActiveArtifact(msg.artifact)}
-                                                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-semibold text-xs shadow-md shadow-emerald-900/30 transition-all cursor-pointer"
+                                                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 font-medium text-xs shadow-sm transition-all cursor-pointer"
                                                             >
-                                                                <Play className="w-3.5 h-3.5" />
+                                                                <Play className="w-3.5 h-3.5 text-emerald-400" />
                                                                 <span>Open Artifact Workspace</span>
                                                             </button>
                                                         </div>
@@ -482,15 +486,15 @@ export const ChatDashboard = () => {
 
                                                     {/* RAG Knowledge Document Citation Pill */}
                                                     {msg.ragSources && msg.ragSources.length > 0 && (
-                                                        <div className="mt-3.5 pt-2.5 border-t border-indigo-900/40 flex items-center gap-2 flex-wrap">
-                                                            <span className="text-[11px] font-semibold text-emerald-400 uppercase tracking-wider flex items-center gap-1">
-                                                                <CheckCircle2 className="w-3 h-3" />
-                                                                Cited Knowledge Base:
+                                                        <div className="mt-3 pt-2.5 border-t border-white/[0.06] flex items-center gap-2 flex-wrap">
+                                                            <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                                                                <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                                                                Cited Knowledge:
                                                             </span>
                                                             {[...new Set(msg.ragSources.map(s => s.docName))].map((doc, idx) => (
                                                                 <span
                                                                     key={idx}
-                                                                    className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-emerald-950/70 border border-emerald-800/50 text-emerald-300 text-xs font-medium shadow-sm"
+                                                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/[0.04] border border-white/[0.08] text-slate-300 text-[11px] font-normal"
                                                                 >
                                                                     <FileText className="w-3 h-3 text-emerald-400" />
                                                                     <span>{doc}</span>
@@ -503,8 +507,8 @@ export const ChatDashboard = () => {
                                         </div>
 
                                         {isUser && (
-                                            <div className="w-8 h-8 rounded-xl bg-slate-800 border border-indigo-900/50 flex items-center justify-center shrink-0">
-                                                <User className="w-4 h-4 text-indigo-300" />
+                                            <div className="w-7 h-7 rounded-lg bg-white/[0.06] border border-white/[0.08] flex items-center justify-center shrink-0">
+                                                <User className="w-3.5 h-3.5 text-slate-300" />
                                             </div>
                                         )}
                                     </div>
@@ -524,23 +528,23 @@ export const ChatDashboard = () => {
                 </div>
 
                 {/* Bottom Prompt Input Area */}
-                <div className="p-4 bg-gradient-to-t from-slate-950 via-slate-950/80 to-transparent shrink-0">
-                    <div className="max-w-4xl mx-auto rounded-2xl bg-slate-900/90 border border-indigo-900/50 shadow-2xl backdrop-blur-xl transition-all focus-within:border-indigo-500/80 focus-within:ring-2 focus-within:ring-indigo-500/20 overflow-hidden">
+                <div className="p-4 bg-gradient-to-t from-[#080b11] via-[#080b11]/90 to-transparent shrink-0">
+                    <div className="max-w-3xl mx-auto rounded-2xl bg-[#0d111a]/95 border border-white/[0.1] shadow-2xl backdrop-blur-xl transition-all focus-within:border-indigo-500/50 focus-within:ring-1 focus-within:ring-indigo-500/20 overflow-hidden">
                         {/* Active Knowledge Documents Bar */}
                         {uploadedDocs.length > 0 && (
-                            <div className="flex flex-wrap items-center gap-2 px-3.5 py-2 bg-indigo-950/40 border-b border-indigo-900/40">
-                                <span className="text-[11px] font-semibold uppercase tracking-wider text-indigo-400 flex items-center gap-1">
+                            <div className="flex flex-wrap items-center gap-2 px-3.5 py-2 bg-white/[0.02] border-b border-white/[0.06]">
+                                <span className="text-[10px] font-semibold uppercase tracking-wider text-indigo-400 flex items-center gap-1">
                                     <Sparkles className="w-3 h-3 text-indigo-400" />
-                                    Active Knowledge:
+                                    Attached Context:
                                 </span>
                                 {uploadedDocs.map((doc, idx) => (
                                     <div
                                         key={idx}
-                                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-900/40 border border-indigo-700/50 text-indigo-200 text-xs shadow-sm"
+                                        className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-white/[0.05] border border-white/[0.08] text-slate-200 text-xs shadow-sm"
                                     >
-                                        <FileText className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-                                        <span className="max-w-[140px] truncate font-medium">{doc.docName}</span>
-                                        <span className="text-[10px] text-indigo-400 bg-indigo-950 px-1 rounded border border-indigo-800/40">
+                                        <FileText className="w-3 h-3 text-indigo-400 shrink-0" />
+                                        <span className="max-w-[140px] truncate font-normal">{doc.docName}</span>
+                                        <span className="text-[10px] text-slate-400 bg-white/[0.04] px-1 rounded border border-white/[0.04]">
                                             {doc.totalChunks || 1} chunks
                                         </span>
                                         <button
@@ -578,7 +582,7 @@ export const ChatDashboard = () => {
                             }
                             rows={2}
                             disabled={isStreaming}
-                            className="w-full bg-transparent px-4 py-3 text-sm text-white placeholder-slate-500 resize-none focus:outline-none disabled:opacity-50"
+                            className="w-full bg-transparent px-4 py-3 text-sm text-slate-100 placeholder-slate-500 resize-none focus:outline-none disabled:opacity-50"
                         />
 
                         {/* Input Action Controls (Document Upload & Send) */}
@@ -588,37 +592,24 @@ export const ChatDashboard = () => {
                                     type="button"
                                     onClick={() => fileInputRef.current?.click()}
                                     disabled={isUploadingDoc || isStreaming}
-                                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 text-slate-300 hover:text-indigo-300 border border-indigo-950 hover:border-indigo-800/60 text-xs font-medium transition-all cursor-pointer disabled:opacity-50"
+                                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 hover:text-white border border-white/[0.06] text-xs font-medium transition-all cursor-pointer disabled:opacity-50"
                                     title="Upload PDF or TXT to add to RAG Knowledge Base"
                                 >
                                     {isUploadingDoc ? (
                                         <>
                                             <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-400" />
-                                            <span>Indexing Knowledge...</span>
+                                            <span>Indexing...</span>
                                         </>
                                     ) : (
                                         <>
-                                            <Paperclip className="w-3.5 h-3.5 text-indigo-400" />
-                                            <span>Upload PDF/TXT</span>
+                                            <Paperclip className="w-3.5 h-3.5 text-slate-400" />
+                                            <span>Attach PDF/TXT</span>
                                         </>
                                     )}
                                 </button>
-                                <button
-                                    type="button"
-                                    onClick={handleExportChat}
-                                    className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-medium transition-all cursor-pointer ${
-                                        messages.length > 0
-                                            ? 'bg-slate-800/80 hover:bg-slate-800 text-indigo-300 hover:text-white border-indigo-900 hover:border-indigo-700 shadow-sm'
-                                            : 'bg-slate-900/40 border-slate-800 text-slate-500 hover:text-slate-400'
-                                    }`}
-                                    title={messages.length > 0 ? "Download conversation history as Markdown (.md)" : "Start chatting to export conversation"}
-                                >
-                                    <Download className={`w-3.5 h-3.5 ${messages.length > 0 ? 'text-indigo-400' : 'text-slate-500'}`} />
-                                    <span>Export Chat</span>
-                                </button>
                                 {uploadedDocs.length > 0 && (
-                                    <span className="text-[11px] text-slate-400 hidden sm:inline">
-                                        RAG Context Attached ({uploadedDocs.length})
+                                    <span className="text-[11px] text-slate-500 hidden sm:inline">
+                                        RAG Attached ({uploadedDocs.length})
                                     </span>
                                 )}
                             </div>
@@ -626,7 +617,7 @@ export const ChatDashboard = () => {
                             <button
                                 onClick={() => handleSend()}
                                 disabled={!inputPrompt.trim() || isStreaming}
-                                className="p-2 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white shadow-md shadow-indigo-600/30 transition-all disabled:opacity-40 disabled:hover:from-indigo-600 disabled:hover:to-violet-600 cursor-pointer"
+                                className="p-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm transition-all disabled:opacity-30 disabled:hover:bg-indigo-600 cursor-pointer"
                                 title="Send prompt"
                             >
                                 {isStreaming ? (
@@ -638,7 +629,7 @@ export const ChatDashboard = () => {
                         </div>
                     </div>
 
-                    <p className="text-center text-[11px] text-slate-500 mt-2">
+                    <p className="text-center text-[10px] text-slate-500 mt-2">
                         Cortex AI can make mistakes. Verify important information and live facts.
                     </p>
                 </div>
