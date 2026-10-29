@@ -4,7 +4,13 @@
  */
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
-const pdfParse = require('pdf-parse');
+
+let pdfModule = null;
+try {
+    pdfModule = require('pdf-parse');
+} catch (err) {
+    console.warn('⚠️ Could not load pdf-parse module:', err.message);
+}
 
 /**
  * Parses raw file buffer into plain text based on MIME type or filename.
@@ -14,20 +20,40 @@ export const extractTextFromFile = async (fileBuffer, fileName = '', mimeType = 
 
     if (isPdf) {
         try {
-            const data = await pdfParse(fileBuffer);
-            return {
-                text: data.text || '',
-                pages: data.numpages || 1,
-                info: data.info || {}
-            };
+            // Support pdf-parse v1 (callable function)
+            if (typeof pdfModule === 'function') {
+                const data = await pdfModule(fileBuffer);
+                return {
+                    text: data.text || '',
+                    pages: data.numpages || 1,
+                    info: data.info || {}
+                };
+            }
+            
+            // Support pdf-parse v2 (PDFParse class)
+            if (pdfModule && pdfModule.PDFParse) {
+                const parser = new pdfModule.PDFParse(new Uint8Array(fileBuffer));
+                const textResult = await parser.getText();
+                const totalPages = textResult.total || (textResult.pages ? textResult.pages.length : 1);
+                const extractedText = typeof textResult.text === 'string'
+                    ? textResult.text
+                    : (textResult.pages ? textResult.pages.map(p => p.text || '').join('\n') : String(textResult || ''));
+
+                if (typeof parser.destroy === 'function') {
+                    try { await parser.destroy(); } catch (_) {}
+                }
+
+                return {
+                    text: extractedText.trim(),
+                    pages: totalPages,
+                    info: {}
+                };
+            }
+
+            throw new Error('No compatible PDF parser available.');
         } catch (err) {
-            console.error('❌ Failed to parse PDF with pdf-parse:', err.message);
-            // Fallback plain string decode if corrupted header
-            return {
-                text: fileBuffer.toString('utf-8', 0, 50000),
-                pages: 1,
-                info: {}
-            };
+            console.error('❌ Failed to parse PDF:', err.message);
+            throw new Error(`Failed to parse PDF document "${fileName}": ${err.message}`);
         }
     }
 
