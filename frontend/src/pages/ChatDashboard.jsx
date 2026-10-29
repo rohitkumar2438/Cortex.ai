@@ -359,28 +359,27 @@ export const ChatDashboard = () => {
                                 <PanelLeft className="w-4 h-4" />
                             </button>
                         )}
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-3">
                             <span className="font-semibold text-sm text-white truncate max-w-[200px] sm:max-w-md">
                                 {conversations.find(c => (c._id || c.id) === activeConversationId)?.title || 'New Session'}
                             </span>
+                            <button
+                                onClick={handleExportChat}
+                                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium transition-all cursor-pointer ${
+                                    messages.length > 0
+                                        ? 'bg-indigo-950/80 hover:bg-indigo-900 border-indigo-500/60 text-indigo-200 hover:text-white shadow-sm shadow-indigo-950'
+                                        : 'bg-slate-900/40 border-slate-800 text-slate-500 hover:text-slate-400'
+                                }`}
+                                title={messages.length > 0 ? "Export conversation history to Markdown file (.md)" : "Start chatting to export conversation"}
+                            >
+                                <Download className={`w-3.5 h-3.5 ${messages.length > 0 ? 'text-indigo-400' : 'text-slate-500'}`} />
+                                <span>Export Chat</span>
+                            </button>
                         </div>
                     </div>
 
-                    {/* Top Action Controls (Export Chat, Credits Badge & Agent Selector) */}
+                    {/* Top Action Controls (Credits Badge & Agent Selector) */}
                     <div className="flex items-center gap-2 sm:gap-3">
-                        <button
-                            onClick={handleExportChat}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
-                                messages.length > 0
-                                    ? 'bg-indigo-950/60 hover:bg-indigo-900/90 border-indigo-500/50 text-indigo-200 hover:text-white shadow-sm shadow-indigo-900/30'
-                                    : 'bg-slate-900/40 border-slate-800 text-slate-500 hover:text-slate-400'
-                            }`}
-                            title={messages.length > 0 ? "Export conversation history to Markdown file (.md)" : "Start chatting to export conversation"}
-                        >
-                            <Download className={`w-3.5 h-3.5 ${messages.length > 0 ? 'text-indigo-400' : 'text-slate-500'}`} />
-                            <span className="font-medium">Export Chat</span>
-                        </button>
-
                         <button
                             onClick={() => setIsBillingOpen(true)}
                             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 text-xs font-semibold transition-all cursor-pointer shadow-sm shadow-amber-500/10"
@@ -603,6 +602,19 @@ export const ChatDashboard = () => {
                                             <span>Upload PDF/TXT</span>
                                         </>
                                     )}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleExportChat}
+                                    className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-medium transition-all cursor-pointer ${
+                                        messages.length > 0
+                                            ? 'bg-slate-800/80 hover:bg-slate-800 text-indigo-300 hover:text-white border-indigo-900 hover:border-indigo-700 shadow-sm'
+                                            : 'bg-slate-900/40 border-slate-800 text-slate-500 hover:text-slate-400'
+                                    }`}
+                                    title={messages.length > 0 ? "Download conversation history as Markdown (.md)" : "Start chatting to export conversation"}
+                                >
+                                    <Download className={`w-3.5 h-3.5 ${messages.length > 0 ? 'text-indigo-400' : 'text-slate-500'}`} />
+                                    <span>Export Chat</span>
                                 </button>
                                 {uploadedDocs.length > 0 && (
                                     <span className="text-[11px] text-slate-400 hidden sm:inline">
