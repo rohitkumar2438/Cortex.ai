@@ -73,7 +73,7 @@ export const indexDocument = async ({ fileBuffer, fileName, mimeType, userId = '
 /**
  * Retrieves semantically relevant context chunks for a given user prompt.
  */
-export const retrieveContext = async ({ prompt, userId = '', conversationId = '', topK = 3, minScore = 0.05 }) => {
+export const retrieveContext = async ({ prompt, userId = '', conversationId = '', topK = 5, minScore = 0.05 }) => {
     if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) {
         return { hasContext: false, contextText: '', sources: [] };
     }
