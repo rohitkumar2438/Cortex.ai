@@ -73,7 +73,7 @@ export const indexDocument = async ({ fileBuffer, fileName, mimeType, userId = '
 /**
  * Retrieves semantically relevant context chunks for a given user prompt.
  */
-export const retrieveContext = async ({ prompt, userId = '', conversationId = '', topK = 3, minScore = 0.12 }) => {
+export const retrieveContext = async ({ prompt, userId = '', conversationId = '', topK = 3, minScore = 0.05 }) => {
     if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) {
         return { hasContext: false, contextText: '', sources: [] };
     }
@@ -82,9 +82,10 @@ export const retrieveContext = async ({ prompt, userId = '', conversationId = ''
         // 1. Embed query
         const queryVector = await embedText(prompt);
 
-        // 2. Search Vector Store
+        // 2. Search Vector Store (Hybrid Semantic + Keyword Search)
         const matches = await queryVectors({
             vector: queryVector,
+            prompt,
             topK,
             filter: {
                 userId: userId || undefined,
@@ -97,7 +98,7 @@ export const retrieveContext = async ({ prompt, userId = '', conversationId = ''
         }
 
         // 3. Filter by similarity threshold
-        const relevantMatches = matches.filter(m => m.score >= minScore && m.metadata?.text);
+        const relevantMatches = matches.filter(m => (m.score >= minScore || m.score > 0) && m.metadata?.text);
 
         if (relevantMatches.length === 0) {
             return { hasContext: false, contextText: '', sources: [] };

@@ -12,10 +12,15 @@ Your answers are thoughtful, clear, highly accurate, and structured in GitHub-st
 Always format code blocks with language identifiers, use bullet points for lists, and emphasize key concepts when appropriate.`;
 
     if (ragContext) {
-        systemText += `\n\nKNOWLEDGE RETRIEVAL ACTIVE:
-You have been provided with excerpts from documents uploaded by the user.
-Use the document context below to answer accurately. Whenever using facts from these documents, refer to them.
-${ragContext}`;
+        systemText += `\n\n=== ATTACHED KNOWLEDGE DOCUMENTS (RAG ACTIVE) ===
+The user has attached knowledge documents (such as a Resume, CV, Transcript, Report, or Notes).
+Document Excerpts:
+${ragContext}
+
+CRITICAL EXTRACTION DIRECTIVES:
+1. When the user asks for specific personal, academic, or factual details present in the attached documents (such as CGPA, GPA, college, university, branch, skills, experience, project details, email, phone, or dates), you MUST extract and state the EXACT value directly from the document excerpts above.
+2. DO NOT give generic textbook explanations or formulas (e.g., NEVER explain "how to calculate CGPA" or "how to compute a GPA") when the value or details are already stated in the uploaded documents. State the exact figure or detail directly!
+3. Format the extracted values clearly with bullet points and bold headers.`;
     }
 
     const systemPrompt = new SystemMessage(systemText);

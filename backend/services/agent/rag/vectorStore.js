@@ -4,11 +4,36 @@
  * Supports metadata filtering by userId, conversationId, and docName.
  */
 import { Pinecone } from '@pinecone-database/pinecone';
+import fs from 'fs';
+import path from 'path';
+
+const CACHE_FILE = path.resolve(process.cwd(), 'vector_cache.json');
 
 // In-Memory Vector Store for dev, tests, or when PINECONE_API_KEY is not set
 class InMemoryVectorStore {
     constructor() {
         this.records = []; // Array of { id, values, metadata }
+        this.loadCache();
+    }
+
+    loadCache() {
+        try {
+            if (fs.existsSync(CACHE_FILE)) {
+                const data = fs.readFileSync(CACHE_FILE, 'utf-8');
+                this.records = JSON.parse(data) || [];
+                console.log(`📂 Loaded ${this.records.length} records from local vector cache.`);
+            }
+        } catch (err) {
+            console.warn('⚠️ Could not load vector cache:', err.message);
+        }
+    }
+
+    saveCache() {
+        try {
+            fs.writeFileSync(CACHE_FILE, JSON.stringify(this.records), 'utf-8');
+        } catch (err) {
+            console.warn('⚠️ Could not save vector cache:', err.message);
+        }
     }
 
     async upsert(records) {
@@ -20,10 +45,12 @@ class InMemoryVectorStore {
                 this.records.push(record);
             }
         }
+        this.saveCache();
         return { upsertedCount: records.length };
     }
 
     cosineSimilarity(vecA, vecB) {
+        if (!vecA || !vecB || vecA.length === 0 || vecB.length === 0) return 0;
         let dot = 0;
         let normA = 0;
         let normB = 0;
@@ -39,30 +66,60 @@ class InMemoryVectorStore {
         return denom === 0 ? 0 : dot / denom;
     }
 
-    async query({ vector, topK = 4, filter = {} }) {
+    async query({ vector, prompt = '', topK = 4, filter = {} }) {
         let candidates = this.records;
 
-        // Apply metadata filters
+        // Apply metadata filters if available
+        let filtered = candidates;
         if (filter.userId) {
-            candidates = candidates.filter(r => r.metadata?.userId === filter.userId);
+            filtered = filtered.filter(r => r.metadata?.userId === filter.userId);
         }
         if (filter.conversationId) {
-            candidates = candidates.filter(r =>
+            filtered = filtered.filter(r =>
                 r.metadata?.conversationId === filter.conversationId ||
                 !r.metadata?.conversationId ||
                 r.metadata?.conversationId === 'default'
             );
         }
         if (filter.docName) {
-            candidates = candidates.filter(r => r.metadata?.docName === filter.docName);
+            filtered = filtered.filter(r => r.metadata?.docName === filter.docName);
         }
 
-        // Calculate cosine similarity
-        const scored = candidates.map(r => ({
-            id: r.id,
-            score: this.cosineSimilarity(vector, r.values),
-            metadata: r.metadata
-        }));
+        // If strict filtering returned no candidates, relax filter to all uploaded documents
+        if (filtered.length > 0) {
+            candidates = filtered;
+        }
+
+        // Hybrid Lexical Token Matching
+        const stopWords = new Set(['what', 'when', 'where', 'which', 'who', 'whom', 'this', 'that', 'with', 'from', 'have', 'your', 'about', 'tell', 'show', 'give', 'please', 'the', 'is', 'are', 'was', 'were', 'my', 'me', 'i', 'can', 'you', 'in', 'on', 'at', 'to', 'for', 'of', 'and', 'or', 'how', 'do', 'does', 'it']);
+        const promptTokens = (prompt || '')
+            .toLowerCase()
+            .replace(/[^a-z0-9\s]/g, ' ')
+            .split(/\s+/)
+            .filter(t => t.length >= 2 && !stopWords.has(t));
+
+        // Calculate hybrid score: cosine similarity + keyword boost
+        const scored = candidates.map(r => {
+            const semScore = vector ? this.cosineSimilarity(vector, r.values) : 0;
+            const text = (r.metadata?.text || '').toLowerCase();
+
+            let matchedCount = 0;
+            for (const token of promptTokens) {
+                if (text.includes(token)) {
+                    matchedCount++;
+                }
+            }
+
+            const keywordRatio = promptTokens.length > 0 ? (matchedCount / promptTokens.length) : 0;
+            // Hybrid fusion: semantic score + keyword exact match boost
+            const hybridScore = Math.min(1.0, (semScore * 0.4) + (keywordRatio * 0.6) + (matchedCount > 0 ? 0.25 : 0));
+
+            return {
+                id: r.id,
+                score: hybridScore,
+                metadata: r.metadata
+            };
+        });
 
         // Sort descending by score
         scored.sort((a, b) => b.score - a.score);
@@ -76,6 +133,7 @@ class InMemoryVectorStore {
             if (filter.conversationId && r.metadata?.conversationId === filter.conversationId) return false;
             return true;
         });
+        this.saveCache();
         return { deleted: initialCount - this.records.length };
     }
 
@@ -150,9 +208,9 @@ export const upsertVectors = async (records) => {
 };
 
 /**
- * Searches vector store for relevant chunks matching the query vector.
+ * Searches vector store for relevant chunks matching the query vector and keywords.
  */
-export const queryVectors = async ({ vector, topK = 4, filter = {} }) => {
+export const queryVectors = async ({ vector, prompt = '', topK = 4, filter = {} }) => {
     const pinecone = getPineconeIndex();
     if (pinecone) {
         try {
@@ -179,7 +237,7 @@ export const queryVectors = async ({ vector, topK = 4, filter = {} }) => {
         }
     }
 
-    return await inMemoryStore.query({ vector, topK, filter });
+    return await inMemoryStore.query({ vector, prompt, topK, filter });
 };
 
 /**
