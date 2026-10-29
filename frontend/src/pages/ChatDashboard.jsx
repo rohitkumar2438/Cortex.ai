@@ -62,6 +62,8 @@ export const ChatDashboard = () => {
     const messagesEndRef = useRef(null);
     const inputRef = useRef(null);
     const fileInputRef = useRef(null);
+    const recognitionRef = useRef(null);
+    const latestTranscriptRef = useRef('');
     const mediaRecorderRef = useRef(null);
     const audioChunksRef = useRef([]);
     const micStreamRef = useRef(null);
@@ -105,11 +107,14 @@ export const ChatDashboard = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages, streamingStatus]);
 
-    // Cleanup speech synthesis & audio analysis on unmount
+    // Cleanup speech recognition & synthesis on unmount
     useEffect(() => {
         return () => {
             if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
                 window.speechSynthesis.cancel();
+            }
+            if (recognitionRef.current) {
+                try { recognitionRef.current.stop(); } catch (e) {}
             }
             if (animFrameRef.current) {
                 cancelAnimationFrame(animFrameRef.current);
@@ -123,89 +128,44 @@ export const ChatDashboard = () => {
         };
     }, []);
 
-    // Speech-to-Text (STT) Toggle Handler: High-Performance MediaRecorder + Groq Whisper AI
-    const toggleVoiceInput = async () => {
-        if (isListening) {
-            // User clicked STOP -> Stop MediaRecorder (fires onstop automatically)
-            setIsListening(false);
-            if (animFrameRef.current) {
-                cancelAnimationFrame(animFrameRef.current);
-                animFrameRef.current = null;
-            }
-            setMicVolume(0);
-
-            if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-                try {
-                    mediaRecorderRef.current.stop();
-                } catch (e) {
-                    console.warn('Error stopping MediaRecorder:', e);
-                }
-            }
-            return;
-        }
-
-        // START RECORDING
+    // Helper: Fallback to Groq Whisper AI MediaRecorder
+    const startWhisperRecording = async () => {
         try {
-            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                dispatch(addToast({
-                    message: 'Microphone is not supported in this browser.',
-                    type: 'error'
-                }));
-                return;
-            }
-
-            // Capture raw microphone stream with standard audio configuration
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                }
+            });
             micStreamRef.current = stream;
             audioChunksRef.current = [];
 
-            // Real-time audio volume visualizer (shows user that their microphone is actively receiving sound)
+            // Resume audio context if created
             try {
                 const AudioCtx = window.AudioContext || window.webkitAudioContext;
                 if (AudioCtx) {
                     const audioCtx = new AudioCtx();
                     audioContextRef.current = audioCtx;
-                    const source = audioCtx.createMediaStreamSource(stream);
-                    const analyser = audioCtx.createAnalyser();
-                    analyser.fftSize = 64;
-                    analyser.smoothingTimeConstant = 0.5;
-                    source.connect(analyser);
-
-                    const dataArray = new Uint8Array(analyser.frequencyBinCount);
-                    const updateVolume = () => {
-                        if (!micStreamRef.current) return;
-                        analyser.getByteFrequencyData(dataArray);
-                        let sum = 0;
-                        for (let i = 0; i < dataArray.length; i++) {
-                            sum += dataArray[i];
-                        }
-                        const avg = sum / dataArray.length;
-                        setMicVolume(Math.round(avg));
-                        animFrameRef.current = requestAnimationFrame(updateVolume);
-                    };
-                    updateVolume();
+                    if (audioCtx.state === 'suspended') {
+                        await audioCtx.resume();
+                    }
                 }
-            } catch (volErr) {
-                console.warn('AudioContext volume meter notice:', volErr);
-            }
+            } catch (e) {}
 
-            // Determine optimal supported audio mime type
             let mimeType = 'audio/webm';
             if (typeof MediaRecorder !== 'undefined') {
                 if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
                     mimeType = 'audio/webm;codecs=opus';
-                } else if (MediaRecorder.isTypeSupported('audio/webm')) {
-                    mimeType = 'audio/webm';
                 } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
                     mimeType = 'audio/mp4';
-                } else if (MediaRecorder.isTypeSupported('audio/ogg')) {
-                    mimeType = 'audio/ogg';
                 }
             }
 
-            const mediaRecorder = mimeType
-                ? new MediaRecorder(stream, { mimeType })
-                : new MediaRecorder(stream);
+            const mediaRecorder = new MediaRecorder(stream, {
+                mimeType: mimeType || undefined,
+                audioBitsPerSecond: 128000
+            });
 
             mediaRecorder.ondataavailable = (event) => {
                 if (event.data && event.data.size > 0) {
@@ -217,39 +177,15 @@ export const ChatDashboard = () => {
                 const chunks = [...audioChunksRef.current];
                 audioChunksRef.current = [];
 
-                // Cleanly stop audio analysis & release microphone tracks
-                if (animFrameRef.current) {
-                    cancelAnimationFrame(animFrameRef.current);
-                    animFrameRef.current = null;
-                }
-                if (audioContextRef.current) {
-                    audioContextRef.current.close().catch(() => {});
-                    audioContextRef.current = null;
-                }
                 if (micStreamRef.current) {
                     micStreamRef.current.getTracks().forEach(track => track.stop());
                     micStreamRef.current = null;
                 }
-                setMicVolume(0);
 
-                if (chunks.length === 0) {
-                    dispatch(addToast({
-                        message: 'No audio recorded. Please ensure microphone is active.',
-                        type: 'warning'
-                    }));
-                    return;
-                }
+                if (chunks.length === 0) return;
 
                 const audioBlob = new Blob(chunks, { type: mimeType || 'audio/webm' });
-                console.log(`🎙️ [Voice STT] Recorded ${chunks.length} chunks, total audio size: ${audioBlob.size} bytes (${mimeType})`);
-
-                if (audioBlob.size < 500) {
-                    dispatch(addToast({
-                        message: 'No audio captured. Please speak into your microphone.',
-                        type: 'warning'
-                    }));
-                    return;
-                }
+                if (audioBlob.size < 500) return;
 
                 setIsTranscribingAudio(true);
                 dispatch(addToast({
@@ -264,9 +200,7 @@ export const ChatDashboard = () => {
 
                     const res = await fetch(`${API_BASE}/agent/transcribe`, {
                         method: 'POST',
-                        headers: {
-                            'x-user-id': user?.userId || ''
-                        },
+                        headers: { 'x-user-id': user?.userId || '' },
                         body: formData
                     });
 
@@ -279,50 +213,120 @@ export const ChatDashboard = () => {
                                 message: `🎙️ "${transcribed.substring(0, 45)}${transcribed.length > 45 ? '...' : ''}"`,
                                 type: 'success'
                             }));
-                            // Auto-send query directly to Cortex AI!
                             handleSend(transcribed);
-                            return;
                         } else if (data.error) {
-                            dispatch(addToast({
-                                message: data.error,
-                                type: 'warning'
-                            }));
-                            return;
+                            dispatch(addToast({ message: data.error, type: 'warning' }));
                         }
-                    } else {
-                        const errData = await res.json().catch(() => ({}));
-                        dispatch(addToast({
-                            message: errData.error || 'Audio transcription failed. Please try again.',
-                            type: 'error'
-                        }));
                     }
-                } catch (whisperErr) {
-                    console.error('Whisper API transcription error:', whisperErr);
-                    dispatch(addToast({
-                        message: 'Network error connecting to Whisper STT.',
-                        type: 'error'
-                    }));
+                } catch (err) {
+                    console.error('Whisper fallback error:', err);
                 } finally {
                     setIsTranscribingAudio(false);
                 }
             };
 
             mediaRecorderRef.current = mediaRecorder;
-            mediaRecorder.start(200); // Flush chunks every 200ms
+            mediaRecorder.start(250);
             setIsListening(true);
-
-            dispatch(addToast({
-                message: '🎙️ Listening... Speak your prompt now, click "Stop & Send" when done.',
-                type: 'info'
-            }));
-        } catch (micErr) {
-            console.error('Microphone access failure:', micErr);
-            dispatch(addToast({
-                message: 'Microphone permission denied or device not found. Please allow microphone access in browser settings.',
-                type: 'error'
-            }));
+        } catch (err) {
+            console.error('Whisper recording fallback failed:', err);
             setIsListening(false);
         }
+    };
+
+    // Speech-to-Text (STT) Toggle Handler: Native WebSpeech + Groq Whisper Fallback
+    const toggleVoiceInput = async () => {
+        if (isListening) {
+            // User requested STOP -> Finalize transcript and send
+            setIsListening(false);
+
+            if (recognitionRef.current) {
+                try { recognitionRef.current.stop(); } catch (e) {}
+                recognitionRef.current = null;
+            }
+
+            if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+                try { mediaRecorderRef.current.stop(); } catch (e) {}
+            }
+
+            // Immediately send whatever speech was captured
+            const capturedText = (latestTranscriptRef.current || inputPrompt).trim();
+            if (capturedText) {
+                latestTranscriptRef.current = '';
+                dispatch(addToast({
+                    message: `🎙️ "${capturedText.substring(0, 45)}${capturedText.length > 45 ? '...' : ''}"`,
+                    type: 'success'
+                }));
+                handleSend(capturedText);
+            } else {
+                dispatch(addToast({
+                    message: 'No speech was detected. Please try speaking into your mic again.',
+                    type: 'warning'
+                }));
+            }
+            return;
+        }
+
+        // START RECORDING
+        const SpeechRecognition = typeof window !== 'undefined'
+            ? (window.SpeechRecognition || window.webkitSpeechRecognition)
+            : null;
+
+        if (SpeechRecognition) {
+            try {
+                const recognition = new SpeechRecognition();
+                recognition.continuous = true;
+                recognition.interimResults = true;
+                recognition.lang = navigator.language || 'en-IN';
+
+                recognition.onstart = () => {
+                    setIsListening(true);
+                    latestTranscriptRef.current = '';
+                    dispatch(addToast({
+                        message: '🎙️ Live Voice Active: Speak now, words will appear in real time!',
+                        type: 'info'
+                    }));
+                };
+
+                recognition.onresult = (event) => {
+                    let transcript = '';
+                    for (let i = 0; i < event.results.length; ++i) {
+                        transcript += event.results[i][0].transcript;
+                    }
+                    if (transcript.trim()) {
+                        latestTranscriptRef.current = transcript.trim();
+                        setInputPrompt(transcript.trim());
+                    }
+                };
+
+                recognition.onerror = (event) => {
+                    console.warn('SpeechRecognition error:', event.error);
+                    if (event.error === 'not-allowed') {
+                        dispatch(addToast({
+                            message: 'Microphone permission denied. Please allow microphone in browser settings.',
+                            type: 'error'
+                        }));
+                        setIsListening(false);
+                    } else if (event.error === 'network') {
+                        console.log('Falling back to Groq Whisper AI due to network speech error...');
+                        startWhisperRecording();
+                    }
+                };
+
+                recognition.onend = () => {
+                    setIsListening(false);
+                };
+
+                recognitionRef.current = recognition;
+                recognition.start();
+                return;
+            } catch (recErr) {
+                console.warn('SpeechRecognition initialization error, switching to Whisper:', recErr);
+            }
+        }
+
+        // Fallback for browsers without SpeechRecognition
+        startWhisperRecording();
     };
 
     // Text-to-Speech (TTS) Reader for Assistant Messages
@@ -895,42 +899,20 @@ export const ChatDashboard = () => {
                             onChange={handleFileUpload}
                         />
 
-                        {/* Live Voice Recording Status Bar with Real-Time Audio Visualizer */}
+                        {/* Live Voice Recording Status Bar with Real-Time Feedback */}
                         {(isListening || isTranscribingAudio) && (
                             <div className="flex items-center justify-between px-3.5 py-2 bg-rose-500/10 border-b border-rose-500/20 text-rose-300 text-xs">
                                 <div className="flex items-center gap-2.5 truncate">
-                                    {isListening && (
-                                        <div className="flex items-end gap-0.5 h-4 px-1 shrink-0">
-                                            <span
-                                                className="w-1 bg-rose-400 rounded-full transition-all duration-75"
-                                                style={{ height: `${Math.max(4, Math.min(16, micVolume * 0.5 + 4))}px` }}
-                                            />
-                                            <span
-                                                className="w-1 bg-rose-500 rounded-full transition-all duration-75"
-                                                style={{ height: `${Math.max(6, Math.min(18, micVolume * 0.9 + 6))}px` }}
-                                            />
-                                            <span
-                                                className="w-1 bg-rose-400 rounded-full transition-all duration-75"
-                                                style={{ height: `${Math.max(4, Math.min(16, micVolume * 0.6 + 4))}px` }}
-                                            />
-                                            <span
-                                                className="w-1 bg-rose-500 rounded-full transition-all duration-75"
-                                                style={{ height: `${Math.max(5, Math.min(18, micVolume * 0.8 + 5))}px` }}
-                                            />
-                                        </div>
-                                    )}
-                                    {isTranscribingAudio && (
-                                        <Loader2 className="w-4 h-4 animate-spin text-amber-400 shrink-0" />
-                                    )}
+                                    <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping shrink-0" />
                                     <span className="font-semibold text-rose-400 shrink-0">
-                                        {isTranscribingAudio ? "Whisper AI:" : "Live Mic:"}
+                                        {isTranscribingAudio ? "Whisper AI:" : "Live Speech:"}
                                     </span>
-                                    <span className="truncate text-slate-200 font-medium">
+                                    <span className="truncate text-slate-100 font-medium italic">
                                         {isTranscribingAudio
                                             ? "Transcribing your audio with Groq Whisper AI..."
-                                            : micVolume > 5
-                                                ? `🎙️ Voice detected (${micVolume}%) — Speak clearly and click 'Stop & Send'`
-                                                : "Listening... (Please speak into your microphone)"}
+                                            : inputPrompt
+                                                ? `"${inputPrompt}"`
+                                                : "Listening... Speak your prompt now, words will appear here"}
                                     </span>
                                 </div>
                                 <div className="flex items-center gap-2 shrink-0">
@@ -945,6 +927,7 @@ export const ChatDashboard = () => {
                                     )}
                                     {isTranscribingAudio && (
                                         <div className="flex items-center gap-1.5 text-amber-300 text-[11px] font-medium">
+                                            <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
                                             <span>Processing...</span>
                                         </div>
                                     )}
