@@ -363,21 +363,25 @@ export const ChatDashboard = () => {
                             <span className="font-semibold text-sm text-white truncate max-w-[200px] sm:max-w-md">
                                 {conversations.find(c => (c._id || c.id) === activeConversationId)?.title || 'New Session'}
                             </span>
-                            {messages.length > 0 && (
-                                <button
-                                    onClick={handleExportChat}
-                                    className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-900/80 hover:bg-slate-800 border border-indigo-950 text-slate-300 hover:text-white text-xs transition-colors cursor-pointer"
-                                    title="Export conversation history to Markdown"
-                                >
-                                    <Download className="w-3.5 h-3.5 text-indigo-400" />
-                                    <span>Export Chat</span>
-                                </button>
-                            )}
                         </div>
                     </div>
 
-                    {/* Agent Selector & Credits Top-Up Badge */}
-                    <div className="flex items-center gap-3">
+                    {/* Top Action Controls (Export Chat, Credits Badge & Agent Selector) */}
+                    <div className="flex items-center gap-2.5">
+                        <button
+                            onClick={handleExportChat}
+                            disabled={messages.length === 0}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
+                                messages.length > 0
+                                    ? 'bg-slate-900 hover:bg-slate-800 border-indigo-700/60 text-indigo-300 hover:text-white shadow-sm shadow-indigo-950'
+                                    : 'bg-slate-900/30 border-slate-800/40 text-slate-600 cursor-not-allowed opacity-60'
+                            }`}
+                            title={messages.length > 0 ? "Export conversation history to Markdown file (.md)" : "Start chatting to enable Export"}
+                        >
+                            <Download className={`w-3.5 h-3.5 ${messages.length > 0 ? 'text-indigo-400' : 'text-slate-600'}`} />
+                            <span className="hidden xs:inline">Export Chat</span>
+                        </button>
+
                         <button
                             onClick={() => setIsBillingOpen(true)}
                             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 text-xs font-semibold transition-all cursor-pointer shadow-sm shadow-amber-500/10"
