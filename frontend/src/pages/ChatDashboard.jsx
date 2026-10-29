@@ -56,11 +56,15 @@ export const ChatDashboard = () => {
     const [uploadedDocs, setUploadedDocs] = useState([]);
     const [isUploadingDoc, setIsUploadingDoc] = useState(false);
     const [isListening, setIsListening] = useState(false);
+    const [isTranscribingAudio, setIsTranscribingAudio] = useState(false);
     const [speakingIndex, setSpeakingIndex] = useState(null);
     const messagesEndRef = useRef(null);
     const inputRef = useRef(null);
     const fileInputRef = useRef(null);
     const recognitionRef = useRef(null);
+    const mediaRecorderRef = useRef(null);
+    const audioChunksRef = useRef([]);
+    const micStreamRef = useRef(null);
     const basePromptRef = useRef('');
     const latestTranscriptRef = useRef('');
 
@@ -113,109 +117,163 @@ export const ChatDashboard = () => {
         };
     }, []);
 
-    // Speech-to-Text (STT) Toggle Handler
-    const toggleVoiceInput = () => {
+    // Speech-to-Text (STT) Toggle Handler: MediaRecorder + Groq Whisper AI (100% Reliable) + WebSpeech Preview
+    const toggleVoiceInput = async () => {
         if (isListening) {
+            // User requested STOP -> Stop recording and trigger Whisper transcription
+            setIsListening(false);
+            if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+                try {
+                    mediaRecorderRef.current.stop();
+                } catch (e) {}
+            }
             if (recognitionRef.current) {
                 try {
                     recognitionRef.current.stop();
                 } catch (e) {}
             }
-            setIsListening(false);
-
-            // Auto-send spoken query if captured
-            const captured = latestTranscriptRef.current.trim();
-            if (captured && !isStreaming) {
-                latestTranscriptRef.current = '';
-                handleSend(captured);
+            if (micStreamRef.current) {
+                micStreamRef.current.getTracks().forEach(track => track.stop());
+                micStreamRef.current = null;
             }
             return;
         }
 
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SpeechRecognition) {
-            dispatch(addToast({
-                message: 'Speech recognition is not supported in this browser. Please use Google Chrome or Microsoft Edge.',
-                type: 'error'
-            }));
-            return;
-        }
-
+        // START RECORDING
         try {
-            const recognition = new SpeechRecognition();
-            recognition.continuous = true;
-            recognition.interimResults = true;
-            recognition.lang = navigator.language || 'en-IN';
-
-            basePromptRef.current = inputPrompt;
-            latestTranscriptRef.current = '';
-
-            recognition.onstart = () => {
-                setIsListening(true);
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
                 dispatch(addToast({
-                    message: '🎙️ Listening... Speak into your mic now.',
-                    type: 'info'
+                    message: 'Microphone is not supported in this browser.',
+                    type: 'error'
                 }));
+                return;
+            }
+
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            micStreamRef.current = stream;
+            audioChunksRef.current = [];
+
+            // 1. Determine optimal audio mime type
+            let mimeType = 'audio/webm';
+            if (typeof MediaRecorder !== 'undefined' && !MediaRecorder.isTypeSupported('audio/webm')) {
+                mimeType = MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : '';
+            }
+
+            const mediaRecorder = mimeType
+                ? new MediaRecorder(stream, { mimeType })
+                : new MediaRecorder(stream);
+
+            mediaRecorder.ondataavailable = (event) => {
+                if (event.data && event.data.size > 0) {
+                    audioChunksRef.current.push(event.data);
+                }
             };
 
-            recognition.onresult = (event) => {
-                let interim = '';
-                let final = '';
+            mediaRecorder.onstop = async () => {
+                const chunks = [...audioChunksRef.current];
+                audioChunksRef.current = [];
 
-                for (let i = 0; i < event.results.length; ++i) {
-                    if (event.results[i].isFinal) {
-                        final += event.results[i][0].transcript + ' ';
-                    } else {
-                        interim += event.results[i][0].transcript;
+                if (micStreamRef.current) {
+                    micStreamRef.current.getTracks().forEach(track => track.stop());
+                    micStreamRef.current = null;
+                }
+
+                if (chunks.length > 0) {
+                    const audioBlob = new Blob(chunks, { type: mimeType || 'audio/webm' });
+                    if (audioBlob.size > 1000) { // Valid audio slice recorded
+                        setIsTranscribingAudio(true);
+                        dispatch(addToast({
+                            message: '⚡ Transcribing audio with Groq Whisper AI...',
+                            type: 'info'
+                        }));
+
+                        try {
+                            const formData = new FormData();
+                            const extension = mimeType.includes('mp4') ? 'mp4' : 'webm';
+                            formData.append('audio', audioBlob, `speech.${extension}`);
+
+                            const res = await fetch(`${API_BASE}/agent/transcribe`, {
+                                method: 'POST',
+                                headers: {
+                                    'x-user-id': user?.userId || ''
+                                },
+                                body: formData
+                            });
+
+                            if (res.ok) {
+                                const data = await res.json();
+                                const transcribed = (data.text || '').trim();
+                                if (transcribed) {
+                                    setInputPrompt(transcribed);
+                                    dispatch(addToast({
+                                        message: `Transcribed: "${transcribed.substring(0, 40)}..."`,
+                                        type: 'success'
+                                    }));
+                                    // Auto-send query directly to Cortex AI!
+                                    handleSend(transcribed);
+                                    return;
+                                }
+                            }
+                        } catch (whisperErr) {
+                            console.warn('Whisper API transcription warning:', whisperErr.message);
+                        } finally {
+                            setIsTranscribingAudio(false);
+                        }
                     }
                 }
 
-                const spoken = (final + interim).trim();
-                if (spoken) {
-                    const base = basePromptRef.current.trim();
-                    const fullText = base ? `${base} ${spoken}` : spoken;
-                    latestTranscriptRef.current = fullText;
-                    setInputPrompt(fullText);
-                }
-            };
-
-            recognition.onerror = (event) => {
-                console.warn('Speech recognition error event:', event.error);
-                if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-                    dispatch(addToast({
-                        message: 'Microphone blocked. Click the lock/tune icon on your browser address bar and choose Allow.',
-                        type: 'error'
-                    }));
-                } else if (event.error === 'network') {
-                    dispatch(addToast({
-                        message: 'Speech recognition requires an internet connection (Google Speech engine).',
-                        type: 'error'
-                    }));
-                } else if (event.error === 'audio-capture') {
-                    dispatch(addToast({
-                        message: 'No microphone found on your computer.',
-                        type: 'error'
-                    }));
-                }
-                setIsListening(false);
-            };
-
-            recognition.onend = () => {
-                setIsListening(false);
-                // When user pauses and voice ends, auto-send prompt!
-                const captured = latestTranscriptRef.current.trim();
-                if (captured && !isStreaming) {
+                // Fallback: If WebSpeech transcribed something, use it
+                const fallbackText = latestTranscriptRef.current.trim();
+                if (fallbackText && !isStreaming) {
                     latestTranscriptRef.current = '';
-                    handleSend(captured);
+                    handleSend(fallbackText);
                 }
             };
 
-            recognitionRef.current = recognition;
-            recognition.start();
-        } catch (err) {
-            console.error('Failed to initiate SpeechRecognition:', err);
+            mediaRecorderRef.current = mediaRecorder;
+            mediaRecorder.start(250); // Collect audio slices every 250ms
+            setIsListening(true);
+            latestTranscriptRef.current = '';
+
+            // 2. Parallel WebSpeech interim recognition for instant typing preview
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (SpeechRecognition) {
+                try {
+                    const recognition = new SpeechRecognition();
+                    recognition.continuous = true;
+                    recognition.interimResults = true;
+                    recognition.lang = navigator.language || 'en-IN';
+
+                    recognition.onresult = (event) => {
+                        let text = '';
+                        for (let i = 0; i < event.results.length; ++i) {
+                            text += event.results[i][0].transcript + ' ';
+                        }
+                        if (text.trim()) {
+                            latestTranscriptRef.current = text.trim();
+                            setInputPrompt(text.trim());
+                        }
+                    };
+
+                    recognition.onerror = (e) => {
+                        console.warn('WebSpeech interim preview error (Whisper will handle):', e.error);
+                    };
+
+                    recognitionRef.current = recognition;
+                    recognition.start();
+                } catch (e) {
+                    console.warn('WebSpeech recognition setup ignored:', e);
+                }
+            }
+
             dispatch(addToast({
-                message: 'Could not start voice recognition: ' + (err.message || 'Unknown error'),
+                message: '🎙️ Listening... Speak now, click "Stop & Send" when done.',
+                type: 'info'
+            }));
+        } catch (micErr) {
+            console.error('Microphone access failure:', micErr);
+            dispatch(addToast({
+                message: 'Microphone permission denied. Click the lock/tune icon in the browser URL bar and allow microphone access.',
                 type: 'error'
             }));
             setIsListening(false);
@@ -793,36 +851,35 @@ export const ChatDashboard = () => {
                         />
 
                         {/* Live Voice Recording Status Bar */}
-                        {isListening && (
+                        {(isListening || isTranscribingAudio) && (
                             <div className="flex items-center justify-between px-3.5 py-2 bg-rose-500/10 border-b border-rose-500/20 text-rose-300 text-xs">
                                 <div className="flex items-center gap-2 truncate">
                                     <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping shrink-0" />
-                                    <span className="font-semibold text-rose-400 shrink-0">Live Voice:</span>
+                                    <span className="font-semibold text-rose-400 shrink-0">
+                                        {isTranscribingAudio ? "Whisper AI:" : "Live Voice:"}
+                                    </span>
                                     <span className="italic truncate text-slate-200 font-normal">
-                                        {inputPrompt || "Speak now... Auto-sends when done"}
+                                        {isTranscribingAudio
+                                            ? "Transcribing your audio with Groq Whisper AI..."
+                                            : (inputPrompt || "Listening... Click 'Stop & Send' when done")}
                                     </span>
                                 </div>
                                 <div className="flex items-center gap-2 shrink-0">
-                                    {inputPrompt.trim() && (
+                                    {!isTranscribingAudio && (
                                         <button
                                             type="button"
-                                            onClick={() => {
-                                                const toSend = inputPrompt.trim();
-                                                toggleVoiceInput();
-                                                handleSend(toSend);
-                                            }}
-                                            className="px-2.5 py-1 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-[11px] cursor-pointer shadow-sm"
+                                            onClick={toggleVoiceInput}
+                                            className="px-2.5 py-1 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-[11px] cursor-pointer shadow-sm transition-all"
                                         >
-                                            Send Spoken Prompt
+                                            Stop & Send
                                         </button>
                                     )}
-                                    <button
-                                        type="button"
-                                        onClick={toggleVoiceInput}
-                                        className="px-2 py-1 rounded-md bg-white/[0.08] hover:bg-white/[0.14] text-slate-300 text-[11px] cursor-pointer"
-                                    >
-                                        Stop
-                                    </button>
+                                    {isTranscribingAudio && (
+                                        <div className="flex items-center gap-1.5 text-indigo-300 text-[11px] font-medium">
+                                            <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-400" />
+                                            <span>Processing...</span>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         )}
