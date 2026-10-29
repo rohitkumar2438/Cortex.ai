@@ -34,7 +34,9 @@ export const handleRun = async (req, res, next) => {
             artifact: result.artifact || null,
             conversationId: result.conversationId,
             remainingCredits: result.remainingCredits,
-            ragSources: result.ragSources || []
+            ragSources: result.ragSources || [],
+            cached: result.cached || false,
+            latencyMs: result.latencyMs || null
         });
     } catch (err) {
         next(err);
@@ -89,7 +91,9 @@ export const handleStream = async (req, res, next) => {
             url: result.url || null,
             artifact: result.artifact || null,
             remainingCredits: result.remainingCredits,
-            ragSources: result.ragSources || []
+            ragSources: result.ragSources || [],
+            cached: result.cached || false,
+            latencyMs: result.latencyMs || null
         });
 
         // Emit done event

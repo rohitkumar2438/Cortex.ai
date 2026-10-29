@@ -5,8 +5,12 @@ import morgan from 'morgan';
 import dotenv from 'dotenv';
 import agentRoutes from './routes/agentRoutes.js';
 import errorHandler from './middleware/errorHandler.js';
+import { initRedis } from '../../shared/redisClient.js';
 
 dotenv.config();
+
+// Connect to Shared Redis (with automatic in-memory fallback)
+initRedis();
 
 const app = express();
 const PORT = process.env.PORT || 8003;

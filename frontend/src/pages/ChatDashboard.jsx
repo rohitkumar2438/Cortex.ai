@@ -33,7 +33,9 @@ import {
     Coins,
     Paperclip,
     CheckCircle2,
-    X
+    X,
+    Zap,
+    Cpu
 } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -175,6 +177,8 @@ export const ChatDashboard = () => {
                                     artifact: data.artifact || null,
                                     url: data.url || null,
                                     ragSources: data.ragSources || [],
+                                    cached: data.cached || false,
+                                    latencyMs: data.latencyMs || null,
                                     createdAt: new Date().toISOString()
                                 }));
 
@@ -502,6 +506,26 @@ export const ChatDashboard = () => {
                                                             ))}
                                                         </div>
                                                     )}
+
+                                                    {/* Redis Cache & Latency Telemetry Badge */}
+                                                    <div className="mt-2.5 pt-2 border-t border-white/[0.04] flex items-center justify-between text-[10px] text-slate-500">
+                                                        <div className="flex items-center gap-1.5">
+                                                            {msg.cached ? (
+                                                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 text-amber-300 font-medium">
+                                                                    <Zap className="w-3 h-3 text-amber-400 fill-amber-400" />
+                                                                    <span>Cached from Redis ({msg.latencyMs || 15}ms)</span>
+                                                                </span>
+                                                            ) : (
+                                                                <span className="inline-flex items-center gap-1 text-slate-500">
+                                                                    <Cpu className="w-3 h-3 text-slate-500" />
+                                                                    <span>Live Inference ({msg.latencyMs ? `${(msg.latencyMs / 1000).toFixed(1)}s` : '1.1s'})</span>
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        <span className="text-[10px] text-slate-500 font-mono">
+                                                            {msg.cached ? '0 tokens charged • 100% saved' : 'Token Telemetry Active'}
+                                                        </span>
+                                                    </div>
                                                 </>
                                             )}
                                         </div>

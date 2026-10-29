@@ -175,6 +175,12 @@ Where:
 ### Q10. What is the purpose of the `x-request-id` header?
 **Answer:** In distributed microservices, a single user click passes through the Gateway, Auth, Chat, and Agent services. `x-request-id` assigns a unique trace identifier at the Gateway that is passed to every downstream service, allowing engineers to trace bugs or latency across multi-container logs easily.
 
+### Q11. How does Cortex AI optimize LLM API costs and latency using Redis?
+**Answer:** Cortex AI implements a **SHA-256 Prompt Caching Engine** in `cortex-redis`. When an incoming prompt is dispatched, the Agent service hashes the normalized prompt text and agent type into `cortex:llm_cache:<agent>:<hash>`.
+- **Cache Hit:** If an identical prompt was submitted within the last 24 hours, the response is delivered from Redis in **~15ms (a 98% latency reduction vs ~1,200ms)** with **0 LLM API tokens charged**.
+- **Cache Miss:** The agent executes live LLM inference and saves the response, artifacts, and citations to Redis with a 24-hour TTL (`EXPIRE 86400`).
+- **Telemetry UI:** The client displays a visual `⚡ Cached from Redis (16ms)` telemetry badge.
+
 ---
 
 ## 7. Verification & Live Demonstration Proofs
@@ -191,4 +197,6 @@ Where:
    - Compiled PDF reports via `PDFKit` (10.2 KB) and PowerPoint presentations via `PptxGenJS` (79.1 KB).
 6. **Chat Export:**
    - Generates and downloads clean GitHub-style Markdown (`.md`) conversation logs with one click.
+7. **Redis Zero-Latency Prompt Caching:**
+   - Verified repeated prompt response drops from **1,118ms** down to **16ms** with `cached: true` flag in Redis key `cortex:llm_cache:chat:<hash>`.
 

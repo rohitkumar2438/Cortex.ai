@@ -96,6 +96,7 @@ services:
       - NODE_ENV=production
       - CHAT_SERVICE_URL=http://chat:8002
       - BILLING_SERVICE_URL=http://billing:8004
+      - REDIS_URL=redis://redis:6379
       - GROQ_API_KEY=${GROQ_API_KEY}
       - TAVILY_API_KEY=${TAVILY_API_KEY}
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}

@@ -86,4 +86,55 @@ export const deleteSession = async (sessionId) => {
     memoryStore.delete(`session:${sessionId}`);
 };
 
+/**
+ * Generic Redis key-value cache setter with TTL (default 24 hours = 86400s)
+ */
+export const setCache = async (key, data, ttlSeconds = 86400) => {
+    if (!key) return false;
+    const payload = JSON.stringify(data);
+    if (isConnected && client) {
+        try {
+            await client.setEx(key, ttlSeconds, payload);
+            return true;
+        } catch (e) {
+            console.warn(`⚠️ Redis setCache failed for key ${key}:`, e.message);
+        }
+    }
+    // In-memory fallback
+    memoryStore.set(key, {
+        payload,
+        expiresAt: Date.now() + ttlSeconds * 1000
+    });
+    return true;
+};
+
+/**
+ * Generic Redis key-value cache getter
+ */
+export const getCache = async (key) => {
+    if (!key) return null;
+
+    if (isConnected && client) {
+        try {
+            const data = await client.get(key);
+            if (data) {
+                return JSON.parse(data);
+            }
+        } catch (e) {
+            console.warn(`⚠️ Redis getCache failed for key ${key}:`, e.message);
+        }
+    }
+
+    // In-memory fallback check
+    const entry = memoryStore.get(key);
+    if (entry) {
+        if (Date.now() > entry.expiresAt) {
+            memoryStore.delete(key);
+            return null;
+        }
+        return JSON.parse(entry.payload);
+    }
+    return null;
+};
+
 export const getRawClient = () => client;

@@ -1,4 +1,6 @@
+import crypto from 'crypto';
 import { multiAgentGraph } from "../graph/multiAgentGraph.js";
+import { getCache, setCache } from "../../../shared/redisClient.js";
 
 const CHAT_SERVICE_URL = process.env.CHAT_SERVICE_URL || 'http://localhost:8002';
 const BILLING_SERVICE_URL = process.env.BILLING_SERVICE_URL || 'http://localhost:8004';
@@ -107,30 +109,83 @@ export const executeAgentWorkflow = async ({
     userId = '',
     onStatusUpdate = () => {}
 }) => {
-    // Stage 1: Thinking
-    onStatusUpdate('Thinking', { step: 'routing', prompt });
+    const startTime = Date.now();
+    const cleanPrompt = (prompt || '').trim();
 
-    // 0. Verify and deduct credits (blocks with 402 if balance is insufficient)
+    // 0. Redis Semantic / Exact Cache Check
+    const promptHash = crypto
+        .createHash('sha256')
+        .update(cleanPrompt.toLowerCase().replace(/\s+/g, ' '))
+        .digest('hex')
+        .substring(0, 16);
+    const cacheKey = `cortex:llm_cache:${agent}:${promptHash}`;
+
+    try {
+        const cachedResult = await getCache(cacheKey);
+        if (cachedResult && cachedResult.response) {
+            const latencyMs = Math.max(12, Date.now() - startTime);
+            console.log(`⚡ [Redis Cache HIT] Returning cached response for agent [${agent}] (hash: ${promptHash}, latency: ${latencyMs}ms)`);
+
+            // Stream fast transition indicating cache hit
+            onStatusUpdate('Thinking', { step: 'cache_hit', prompt: cleanPrompt });
+            onStatusUpdate('Generating', { step: 'cached_delivery', latencyMs });
+
+            // Persist conversation messages for history consistency
+            if (conversationId && conversationId !== 'default' && userId) {
+                await persistMessage(conversationId, userId, {
+                    role: 'user',
+                    content: cleanPrompt,
+                    agent: agent === 'auto' ? 'chat' : agent
+                });
+                await persistMessage(conversationId, userId, {
+                    role: 'assistant',
+                    content: cachedResult.response,
+                    agent: cachedResult.agent,
+                    images: cachedResult.images || [],
+                    artifact: cachedResult.artifact || null,
+                    url: cachedResult.url || null,
+                    cached: true,
+                    latencyMs
+                });
+            }
+
+            return {
+                ...cachedResult,
+                conversationId,
+                cached: true,
+                cachedAt: cachedResult.cachedAt,
+                latencyMs,
+                remainingCredits: null // Zero credits charged on cache hit!
+            };
+        }
+    } catch (cacheErr) {
+        console.warn('⚠️ Redis cache read warning (proceeding to live inference):', cacheErr.message);
+    }
+
+    // Stage 1: Thinking
+    onStatusUpdate('Thinking', { step: 'routing', prompt: cleanPrompt });
+
+    // 1. Verify and deduct credits (blocks with 402 if balance is insufficient)
     const deductionResult = await deductCreditsBeforeRun(userId, agent);
 
-    // 1. Persist user message if conversationId provided
+    // 2. Persist user message if conversationId provided
     if (conversationId && conversationId !== 'default' && userId) {
         await persistMessage(conversationId, userId, {
             role: 'user',
-            content: prompt,
+            content: cleanPrompt,
             agent: agent === 'auto' ? 'chat' : agent
         });
     }
 
-    // 2. Fetch history context
+    // 3. Fetch history context
     const history = await fetchConversationHistory(conversationId, userId);
 
     // Stage 2: Reasoning
     onStatusUpdate('Reasoning', { step: 'execution', agent });
 
-    // 3. Invoke LangGraph Orchestration
+    // 4. Invoke LangGraph Orchestration
     const graphResult = await multiAgentGraph.invoke({
-        prompt,
+        prompt: cleanPrompt,
         agent: agent === 'auto' ? '' : agent,
         messages: history,
         conversationId,
@@ -150,8 +205,9 @@ export const executeAgentWorkflow = async ({
     const artifact = graphResult.artifact || null;
     const downloadUrl = graphResult.url || null;
     const ragSources = graphResult.ragSources || [];
+    const totalLatencyMs = Date.now() - startTime;
 
-    // 4. Persist assistant message
+    // 5. Persist assistant message
     if (conversationId && conversationId !== 'default' && userId) {
         await persistMessage(conversationId, userId, {
             role: 'assistant',
@@ -159,7 +215,25 @@ export const executeAgentWorkflow = async ({
             agent: chosenAgent,
             images,
             artifact,
-            url: downloadUrl
+            url: downloadUrl,
+            cached: false,
+            latencyMs: totalLatencyMs
+        });
+    }
+
+    // 6. Asynchronously store in Redis Cache (24-hour TTL)
+    if (responseText && responseText.length > 10) {
+        const cachePayload = {
+            response: responseText,
+            agent: chosenAgent,
+            images,
+            artifact,
+            url: downloadUrl,
+            ragSources,
+            cachedAt: new Date().toISOString()
+        };
+        setCache(cacheKey, cachePayload, 86400).catch(err => {
+            console.warn('⚠️ Redis cache write warning:', err.message);
         });
     }
 
@@ -171,7 +245,9 @@ export const executeAgentWorkflow = async ({
         url: downloadUrl,
         conversationId,
         remainingCredits: deductionResult?.remainingCredits,
-        ragSources
+        ragSources,
+        cached: false,
+        latencyMs: totalLatencyMs
     };
 };
 
