@@ -1,5 +1,66 @@
+import https from 'https';
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { getModel } from "../config/llmModels.js";
+
+/**
+ * Executes Tavily Search API with IPv4 forced (avoids Docker/WSL2 NAT64 IPv6 connection timeouts).
+ */
+const callTavilySearch = (apiKey, query) => new Promise((resolve) => {
+    const postData = JSON.stringify({
+        api_key: apiKey,
+        query,
+        search_depth: "basic",
+        include_images: true,
+        max_results: 5
+    });
+
+    const req = https.request({
+        hostname: 'api.tavily.com',
+        port: 443,
+        path: '/search',
+        method: 'POST',
+        family: 4, // Force IPv4 for reliable connectivity in Docker containers
+        headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(postData)
+        }
+    }, (res) => {
+        let buffer = '';
+        res.on('data', chunk => { buffer += chunk; });
+        res.on('end', () => {
+            try {
+                if (res.statusCode >= 200 && res.statusCode < 300) {
+                    const parsed = JSON.parse(buffer);
+                    console.log(`🌐 Tavily Search API Success: retrieved ${parsed.results?.length || 0} web results.`);
+                    resolve({
+                        results: parsed.results || [],
+                        images: (parsed.images || []).filter(img => typeof img === 'string' && img.startsWith('http'))
+                    });
+                } else {
+                    console.warn(`⚠️ Tavily API returned HTTP ${res.statusCode}:`, buffer.substring(0, 150));
+                    resolve({ results: [], images: [] });
+                }
+            } catch (err) {
+                console.warn('⚠️ Tavily JSON parse error:', err.message);
+                resolve({ results: [], images: [] });
+            }
+        });
+    });
+
+    req.on('error', (err) => {
+        console.warn('⚠️ Tavily network error:', err.message);
+        resolve({ results: [], images: [] });
+    });
+
+    req.setTimeout(12000, () => {
+        console.warn('⚠️ Tavily request timed out after 12s');
+        req.destroy();
+        resolve({ results: [], images: [] });
+    });
+
+    req.write(postData);
+    req.end();
+});
 
 /**
  * Search Agent: Powered by Tavily search API and Groq synthesis.
@@ -11,29 +72,9 @@ export const runSearchAgent = async (prompt) => {
     let searchImages = [];
 
     if (tavilyKey && !tavilyKey.includes('your_')) {
-        try {
-            const res = await fetch("https://api.tavily.com/search", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    api_key: tavilyKey,
-                    query: prompt,
-                    search_depth: "basic",
-                    include_images: true,
-                    max_results: 5
-                })
-            });
-
-            if (res.ok) {
-                const data = await res.json();
-                searchResults = data.results || [];
-                searchImages = (data.images || []).filter(img => typeof img === 'string' && img.startsWith('http'));
-            } else {
-                console.warn(`⚠️ Tavily search responded with status ${res.status}`);
-            }
-        } catch (err) {
-            console.warn('⚠️ Tavily search network error:', err.message);
-        }
+        const tavilyData = await callTavilySearch(tavilyKey, prompt);
+        searchResults = tavilyData.results || [];
+        searchImages = tavilyData.images || [];
     }
 
     // Prepare search context and references
