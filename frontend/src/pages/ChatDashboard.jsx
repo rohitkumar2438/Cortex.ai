@@ -35,7 +35,11 @@ import {
     CheckCircle2,
     X,
     Zap,
-    Cpu
+    Cpu,
+    Mic,
+    MicOff,
+    Volume2,
+    VolumeX
 } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -51,9 +55,12 @@ export const ChatDashboard = () => {
     const [isBillingOpen, setIsBillingOpen] = useState(false);
     const [uploadedDocs, setUploadedDocs] = useState([]);
     const [isUploadingDoc, setIsUploadingDoc] = useState(false);
+    const [isListening, setIsListening] = useState(false);
+    const [speakingIndex, setSpeakingIndex] = useState(null);
     const messagesEndRef = useRef(null);
     const inputRef = useRef(null);
     const fileInputRef = useRef(null);
+    const recognitionRef = useRef(null);
 
     // Initial load: fetch conversations
     useEffect(() => {
@@ -92,8 +99,121 @@ export const ChatDashboard = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages, streamingStatus]);
 
+    // Cleanup speech synthesis on unmount
+    useEffect(() => {
+        return () => {
+            if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+                window.speechSynthesis.cancel();
+            }
+            if (recognitionRef.current) {
+                recognitionRef.current.stop();
+            }
+        };
+    }, []);
+
+    // Speech-to-Text (STT) Toggle Handler
+    const toggleVoiceInput = () => {
+        if (isListening) {
+            recognitionRef.current?.stop();
+            setIsListening(false);
+            return;
+        }
+
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            dispatch(addToast({
+                message: 'Speech recognition is not supported in this browser. Please use Google Chrome or Microsoft Edge.',
+                type: 'error'
+            }));
+            return;
+        }
+
+        try {
+            const recognition = new SpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = true;
+            recognition.lang = 'en-US';
+
+            recognition.onstart = () => {
+                setIsListening(true);
+            };
+
+            recognition.onresult = (event) => {
+                let finalTranscript = '';
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                    if (event.results[i].isFinal) {
+                        finalTranscript += event.results[i][0].transcript;
+                    }
+                }
+                if (finalTranscript) {
+                    setInputPrompt(prev => prev ? `${prev} ${finalTranscript}` : finalTranscript);
+                }
+            };
+
+            recognition.onerror = (event) => {
+                console.warn('Speech recognition event error:', event.error);
+                setIsListening(false);
+            };
+
+            recognition.onend = () => {
+                setIsListening(false);
+            };
+
+            recognitionRef.current = recognition;
+            recognition.start();
+        } catch (err) {
+            console.error('Failed to initiate SpeechRecognition:', err);
+            setIsListening(false);
+        }
+    };
+
+    // Text-to-Speech (TTS) Reader for Assistant Messages
+    const handleSpeakMessage = (index, content) => {
+        if (!('speechSynthesis' in window)) {
+            dispatch(addToast({ message: 'Text-to-speech is not supported in this browser.', type: 'error' }));
+            return;
+        }
+
+        if (speakingIndex === index) {
+            window.speechSynthesis.cancel();
+            setSpeakingIndex(null);
+            return;
+        }
+
+        window.speechSynthesis.cancel();
+
+        // Strip Markdown for clean, human-like voice synthesis
+        const cleanText = content
+            .replace(/```[\s\S]*?```/g, 'Code block omitted.')
+            .replace(/`([^`]+)`/g, '$1')
+            .replace(/[*#_~>]/g, '')
+            .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+            .replace(/https?:\/\/\S+/g, 'link');
+
+        const utterance = new SpeechSynthesisUtterance(cleanText);
+        utterance.rate = 1.0;
+        utterance.pitch = 1.0;
+        utterance.lang = 'en-US';
+
+        utterance.onend = () => {
+            setSpeakingIndex(null);
+        };
+
+        utterance.onerror = () => {
+            setSpeakingIndex(null);
+        };
+
+        setSpeakingIndex(index);
+        window.speechSynthesis.speak(utterance);
+    };
+
     // Handle sending message with SSE streaming
     const handleSend = async (customPrompt = null) => {
+        if (isListening) {
+            recognitionRef.current?.stop();
+            setIsListening(false);
+        }
+
         const text = (customPrompt || inputPrompt).trim();
         if (!text || isStreaming) return;
 
@@ -522,9 +642,33 @@ export const ChatDashboard = () => {
                                                                 </span>
                                                             )}
                                                         </div>
-                                                        <span className="text-[10px] text-slate-500 font-mono">
-                                                            {msg.cached ? '0 tokens charged • 100% saved' : 'Token Telemetry Active'}
-                                                        </span>
+                                                        <div className="flex items-center gap-2">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleSpeakMessage(index, msg.content)}
+                                                                className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded transition-all cursor-pointer ${
+                                                                    speakingIndex === index
+                                                                        ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30 animate-pulse'
+                                                                        : 'text-slate-400 hover:text-white hover:bg-white/[0.05]'
+                                                                }`}
+                                                                title={speakingIndex === index ? "Stop voice playback" : "Listen to response (TTS)"}
+                                                            >
+                                                                {speakingIndex === index ? (
+                                                                    <>
+                                                                        <VolumeX className="w-3 h-3 text-rose-400" />
+                                                                        <span>Stop Voice</span>
+                                                                    </>
+                                                                ) : (
+                                                                    <>
+                                                                        <Volume2 className="w-3 h-3 text-slate-400" />
+                                                                        <span>Read Aloud</span>
+                                                                    </>
+                                                                )}
+                                                            </button>
+                                                            <span className="text-[10px] text-slate-500 font-mono">
+                                                                {msg.cached ? '0 tokens charged • 100% saved' : 'Token Telemetry Active'}
+                                                            </span>
+                                                        </div>
                                                     </div>
                                                 </>
                                             )}
@@ -628,6 +772,30 @@ export const ChatDashboard = () => {
                                         <>
                                             <Paperclip className="w-3.5 h-3.5 text-slate-400" />
                                             <span>Attach PDF/TXT</span>
+                                        </>
+                                    )}
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={toggleVoiceInput}
+                                    disabled={isStreaming}
+                                    className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-all cursor-pointer ${
+                                        isListening
+                                            ? 'bg-rose-500/20 border-rose-500/40 text-rose-300 animate-pulse shadow-sm shadow-rose-500/20'
+                                            : 'bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 hover:text-white border-white/[0.06]'
+                                    }`}
+                                    title={isListening ? "Listening... Click to stop speaking" : "Speak your prompt (Speech-to-Text)"}
+                                >
+                                    {isListening ? (
+                                        <>
+                                            <MicOff className="w-3.5 h-3.5 text-rose-400" />
+                                            <span className="font-semibold text-rose-300">Listening...</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Mic className="w-3.5 h-3.5 text-slate-400" />
+                                            <span>Voice Input</span>
                                         </>
                                     )}
                                 </button>

@@ -181,6 +181,11 @@ Where:
 - **Cache Miss:** The agent executes live LLM inference and saves the response, artifacts, and citations to Redis with a 24-hour TTL (`EXPIRE 86400`).
 - **Telemetry UI:** The client displays a visual `⚡ Cached from Redis (16ms)` telemetry badge.
 
+### Q12. How is client-side Voice Interaction (STT & TTS) architected without external voice API bills?
+**Answer:** Cortex AI leverages the browser's native **W3C Web Speech API**:
+1. **Speech-to-Text (STT):** Implemented via `window.SpeechRecognition || window.webkitSpeechRecognition`. It processes real-time audio streams locally through hardware-accelerated operating system speech engines, transcribing spoken queries with zero external API costs or latency.
+2. **Text-to-Speech (TTS):** Implemented via `window.speechSynthesis` and `SpeechSynthesisUtterance`. Before speaking, the text is sanitized with regex to remove Markdown symbols (`#`, `**`, code blocks) so the assistant narrates cleanly and naturally.
+
 ---
 
 ## 7. Verification & Live Demonstration Proofs
@@ -199,4 +204,6 @@ Where:
    - Generates and downloads clean GitHub-style Markdown (`.md`) conversation logs with one click.
 7. **Redis Zero-Latency Prompt Caching:**
    - Verified repeated prompt response drops from **1,118ms** down to **16ms** with `cached: true` flag in Redis key `cortex:llm_cache:chat:<hash>`.
+8. **Hands-Free Voice Interactions:**
+   - Verified real-time voice dictation into the prompt bar via pulsing `Voice Input` microphone control and clean audio narration via `Read Aloud`.
 
