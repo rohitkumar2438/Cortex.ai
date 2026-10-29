@@ -39,7 +39,8 @@ import {
     Mic,
     MicOff,
     Volume2,
-    VolumeX
+    VolumeX,
+    Sliders
 } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -58,6 +59,10 @@ export const ChatDashboard = () => {
     const [isListening, setIsListening] = useState(false);
     const [isTranscribingAudio, setIsTranscribingAudio] = useState(false);
     const [micVolume, setMicVolume] = useState(0);
+    const [audioDevices, setAudioDevices] = useState([]);
+    const [selectedMicId, setSelectedMicId] = useState('');
+    const [showMicSettings, setShowMicSettings] = useState(false);
+    const [isTestingMic, setIsTestingMic] = useState(false);
     const [speakingIndex, setSpeakingIndex] = useState(null);
     const messagesEndRef = useRef(null);
     const inputRef = useRef(null);
@@ -69,6 +74,7 @@ export const ChatDashboard = () => {
     const micStreamRef = useRef(null);
     const audioContextRef = useRef(null);
     const animFrameRef = useRef(null);
+    const maxVolumeRef = useRef(0);
 
     // Initial load: fetch conversations
     useEffect(() => {
@@ -128,28 +134,147 @@ export const ChatDashboard = () => {
         };
     }, []);
 
-    // Helper: Fallback to Groq Whisper AI MediaRecorder
-    const startWhisperRecording = async () => {
+    // List available microphones from browser
+    const loadAudioDevices = async () => {
         try {
+            if (!navigator.mediaDevices?.enumerateDevices) return;
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const mics = devices.filter(d => d.kind === 'audioinput');
+            setAudioDevices(mics);
+            if (mics.length > 0 && !selectedMicId) {
+                const active = mics.find(m => m.deviceId !== 'default') || mics[0];
+                setSelectedMicId(active.deviceId);
+            }
+        } catch (e) {
+            console.warn('Could not enumerate audio devices:', e);
+        }
+    };
+
+    // 3-Second Microphone Live Test & Speaker Playback
+    const runMicTest = async () => {
+        try {
+            setIsTestingMic(true);
             const stream = await navigator.mediaDevices.getUserMedia({
-                audio: {
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    autoGainControl: true
+                audio: selectedMicId ? { deviceId: { exact: selectedMicId } } : true
+            });
+
+            // Monitor volume during test
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            let audioCtx = null;
+            let animId = null;
+            if (AudioCtx) {
+                audioCtx = new AudioCtx();
+                if (audioCtx.state === 'suspended') await audioCtx.resume();
+                const source = audioCtx.createMediaStreamSource(stream);
+                const analyser = audioCtx.createAnalyser();
+                analyser.fftSize = 64;
+                source.connect(analyser);
+                const dataArray = new Uint8Array(analyser.frequencyBinCount);
+                const checkVol = () => {
+                    analyser.getByteFrequencyData(dataArray);
+                    let sum = 0;
+                    for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+                    setMicVolume(Math.round(sum / dataArray.length));
+                    animId = requestAnimationFrame(checkVol);
+                };
+                checkVol();
+            }
+
+            const recorder = new MediaRecorder(stream);
+            const chunks = [];
+            recorder.ondataavailable = (e) => {
+                if (e.data && e.data.size > 0) chunks.push(e.data);
+            };
+
+            recorder.onstop = () => {
+                if (animId) cancelAnimationFrame(animId);
+                if (audioCtx) audioCtx.close().catch(() => {});
+                stream.getTracks().forEach(t => t.stop());
+                setIsTestingMic(false);
+
+                if (chunks.length > 0) {
+                    const blob = new Blob(chunks, { type: 'audio/webm' });
+                    const url = URL.createObjectURL(blob);
+                    const audio = new Audio(url);
+                    audio.play().catch(() => {});
+                    dispatch(addToast({
+                        message: '🔊 Playing back recorded test audio through your speakers...',
+                        type: 'info'
+                    }));
                 }
+            };
+
+            recorder.start();
+            setTimeout(() => {
+                if (recorder.state === 'recording') recorder.stop();
+            }, 3000);
+        } catch (err) {
+            console.error('Mic test error:', err);
+            setIsTestingMic(false);
+            dispatch(addToast({
+                message: 'Microphone test failed. Check microphone permission in browser.',
+                type: 'error'
+            }));
+        }
+    };
+
+    // Speech-to-Text (STT) Toggle Handler: High-Reliability Dual STT (Live WebSpeech + Groq Whisper AI)
+    const toggleVoiceInput = async () => {
+        if (isListening) {
+            // User requested STOP -> Stop both engines
+            setIsListening(false);
+
+            if (recognitionRef.current) {
+                try { recognitionRef.current.stop(); } catch (e) {}
+                recognitionRef.current = null;
+            }
+
+            if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+                try { mediaRecorderRef.current.stop(); } catch (e) {}
+            }
+            return;
+        }
+
+        // START RECORDING
+        try {
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                dispatch(addToast({ message: 'Microphone not supported in this browser.', type: 'error' }));
+                return;
+            }
+
+            loadAudioDevices();
+
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: selectedMicId ? { deviceId: { exact: selectedMicId } } : true
             });
             micStreamRef.current = stream;
             audioChunksRef.current = [];
+            maxVolumeRef.current = 0;
 
-            // Resume audio context if created
+            // Real-time Audio Visualizer & Level Monitor
             try {
                 const AudioCtx = window.AudioContext || window.webkitAudioContext;
                 if (AudioCtx) {
                     const audioCtx = new AudioCtx();
                     audioContextRef.current = audioCtx;
-                    if (audioCtx.state === 'suspended') {
-                        await audioCtx.resume();
-                    }
+                    if (audioCtx.state === 'suspended') await audioCtx.resume();
+                    const source = audioCtx.createMediaStreamSource(stream);
+                    const analyser = audioCtx.createAnalyser();
+                    analyser.fftSize = 64;
+                    source.connect(analyser);
+
+                    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+                    const checkVol = () => {
+                        if (!micStreamRef.current) return;
+                        analyser.getByteFrequencyData(dataArray);
+                        let sum = 0;
+                        for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+                        const avg = Math.round(sum / dataArray.length);
+                        setMicVolume(avg);
+                        if (avg > maxVolumeRef.current) maxVolumeRef.current = avg;
+                        animFrameRef.current = requestAnimationFrame(checkVol);
+                    };
+                    checkVol();
                 }
             } catch (e) {}
 
@@ -177,156 +302,135 @@ export const ChatDashboard = () => {
                 const chunks = [...audioChunksRef.current];
                 audioChunksRef.current = [];
 
+                if (animFrameRef.current) {
+                    cancelAnimationFrame(animFrameRef.current);
+                    animFrameRef.current = null;
+                }
+                if (audioContextRef.current) {
+                    audioContextRef.current.close().catch(() => {});
+                    audioContextRef.current = null;
+                }
                 if (micStreamRef.current) {
-                    micStreamRef.current.getTracks().forEach(track => track.stop());
+                    micStreamRef.current.getTracks().forEach(t => t.stop());
                     micStreamRef.current = null;
                 }
+                setMicVolume(0);
 
-                if (chunks.length === 0) return;
+                // 1. If WebSpeech captured text, send it immediately!
+                const webSpeechText = (latestTranscriptRef.current || '').trim();
+                if (webSpeechText) {
+                    latestTranscriptRef.current = '';
+                    setInputPrompt(webSpeechText);
+                    dispatch(addToast({
+                        message: `🎙️ "${webSpeechText.substring(0, 45)}${webSpeechText.length > 45 ? '...' : ''}"`,
+                        type: 'success'
+                    }));
+                    handleSend(webSpeechText);
+                    return;
+                }
 
-                const audioBlob = new Blob(chunks, { type: mimeType || 'audio/webm' });
-                if (audioBlob.size < 500) return;
+                // 2. Otherwise, transcribe audio with Groq Whisper AI!
+                if (chunks.length > 0) {
+                    const audioBlob = new Blob(chunks, { type: mimeType || 'audio/webm' });
+                    if (audioBlob.size > 500) {
+                        setIsTranscribingAudio(true);
+                        dispatch(addToast({
+                            message: '⚡ Transcribing audio with Groq Whisper AI...',
+                            type: 'info'
+                        }));
 
-                setIsTranscribingAudio(true);
-                dispatch(addToast({
-                    message: '⚡ Transcribing audio with Groq Whisper AI...',
-                    type: 'info'
-                }));
+                        try {
+                            const formData = new FormData();
+                            const extension = mimeType.includes('mp4') ? 'mp4' : 'webm';
+                            formData.append('audio', audioBlob, `speech.${extension}`);
 
-                try {
-                    const formData = new FormData();
-                    const extension = mimeType.includes('mp4') ? 'mp4' : 'webm';
-                    formData.append('audio', audioBlob, `speech.${extension}`);
+                            const res = await fetch(`${API_BASE}/agent/transcribe`, {
+                                method: 'POST',
+                                headers: { 'x-user-id': user?.userId || '' },
+                                body: formData
+                            });
 
-                    const res = await fetch(`${API_BASE}/agent/transcribe`, {
-                        method: 'POST',
-                        headers: { 'x-user-id': user?.userId || '' },
-                        body: formData
-                    });
-
-                    if (res.ok) {
-                        const data = await res.json();
-                        const transcribed = (data.text || '').trim();
-                        if (data.success && transcribed) {
-                            setInputPrompt(transcribed);
-                            dispatch(addToast({
-                                message: `🎙️ "${transcribed.substring(0, 45)}${transcribed.length > 45 ? '...' : ''}"`,
-                                type: 'success'
-                            }));
-                            handleSend(transcribed);
-                        } else if (data.error) {
-                            dispatch(addToast({ message: data.error, type: 'warning' }));
+                            if (res.ok) {
+                                const data = await res.json();
+                                const transcribed = (data.text || '').trim();
+                                if (data.success && transcribed) {
+                                    setInputPrompt(transcribed);
+                                    dispatch(addToast({
+                                        message: `🎙️ "${transcribed.substring(0, 45)}${transcribed.length > 45 ? '...' : ''}"`,
+                                        type: 'success'
+                                    }));
+                                    handleSend(transcribed);
+                                    return;
+                                }
+                            }
+                        } catch (err) {
+                            console.error('Whisper transcribe error:', err);
+                        } finally {
+                            setIsTranscribingAudio(false);
                         }
                     }
-                } catch (err) {
-                    console.error('Whisper fallback error:', err);
-                } finally {
-                    setIsTranscribingAudio(false);
+                }
+
+                // 3. If neither recognized voice:
+                if (maxVolumeRef.current < 4) {
+                    dispatch(addToast({
+                        message: '⚠️ Microphone volume was 0%. Your mic is muted in Windows (Fn+F4 key or Windows Sound Settings). Click the ⚙️ icon to test your mic.',
+                        type: 'warning'
+                    }));
+                } else {
+                    dispatch(addToast({
+                        message: 'No speech was recognized. Please speak closer to your microphone.',
+                        type: 'warning'
+                    }));
                 }
             };
 
             mediaRecorderRef.current = mediaRecorder;
-            mediaRecorder.start(250);
+            mediaRecorder.start();
             setIsListening(true);
-        } catch (err) {
-            console.error('Whisper recording fallback failed:', err);
+            latestTranscriptRef.current = '';
+
+            // Optional live WebSpeech typing for immediate visual preview
+            const SpeechRecognition = typeof window !== 'undefined'
+                ? (window.SpeechRecognition || window.webkitSpeechRecognition)
+                : null;
+
+            if (SpeechRecognition) {
+                try {
+                    const recognition = new SpeechRecognition();
+                    recognition.continuous = true;
+                    recognition.interimResults = true;
+                    recognition.lang = navigator.language || 'en-IN';
+
+                    recognition.onresult = (event) => {
+                        let text = '';
+                        for (let i = 0; i < event.results.length; ++i) {
+                            text += event.results[i][0].transcript;
+                        }
+                        if (text.trim()) {
+                            latestTranscriptRef.current = text.trim();
+                            setInputPrompt(text.trim());
+                        }
+                    };
+
+                    recognition.onerror = () => {};
+                    recognitionRef.current = recognition;
+                    recognition.start();
+                } catch (e) {}
+            }
+
+            dispatch(addToast({
+                message: '🎙️ Listening... Speak your prompt now, click "Stop & Send" when done.',
+                type: 'info'
+            }));
+        } catch (micErr) {
+            console.error('Microphone error:', micErr);
+            dispatch(addToast({
+                message: 'Microphone permission denied. Allow mic access in URL bar lock icon.',
+                type: 'error'
+            }));
             setIsListening(false);
         }
-    };
-
-    // Speech-to-Text (STT) Toggle Handler: Native WebSpeech + Groq Whisper Fallback
-    const toggleVoiceInput = async () => {
-        if (isListening) {
-            // User requested STOP -> Finalize transcript and send
-            setIsListening(false);
-
-            if (recognitionRef.current) {
-                try { recognitionRef.current.stop(); } catch (e) {}
-                recognitionRef.current = null;
-            }
-
-            if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-                try { mediaRecorderRef.current.stop(); } catch (e) {}
-            }
-
-            // Immediately send whatever speech was captured
-            const capturedText = (latestTranscriptRef.current || inputPrompt).trim();
-            if (capturedText) {
-                latestTranscriptRef.current = '';
-                dispatch(addToast({
-                    message: `🎙️ "${capturedText.substring(0, 45)}${capturedText.length > 45 ? '...' : ''}"`,
-                    type: 'success'
-                }));
-                handleSend(capturedText);
-            } else {
-                dispatch(addToast({
-                    message: 'No speech was detected. Please try speaking into your mic again.',
-                    type: 'warning'
-                }));
-            }
-            return;
-        }
-
-        // START RECORDING
-        const SpeechRecognition = typeof window !== 'undefined'
-            ? (window.SpeechRecognition || window.webkitSpeechRecognition)
-            : null;
-
-        if (SpeechRecognition) {
-            try {
-                const recognition = new SpeechRecognition();
-                recognition.continuous = true;
-                recognition.interimResults = true;
-                recognition.lang = navigator.language || 'en-IN';
-
-                recognition.onstart = () => {
-                    setIsListening(true);
-                    latestTranscriptRef.current = '';
-                    dispatch(addToast({
-                        message: '🎙️ Live Voice Active: Speak now, words will appear in real time!',
-                        type: 'info'
-                    }));
-                };
-
-                recognition.onresult = (event) => {
-                    let transcript = '';
-                    for (let i = 0; i < event.results.length; ++i) {
-                        transcript += event.results[i][0].transcript;
-                    }
-                    if (transcript.trim()) {
-                        latestTranscriptRef.current = transcript.trim();
-                        setInputPrompt(transcript.trim());
-                    }
-                };
-
-                recognition.onerror = (event) => {
-                    console.warn('SpeechRecognition error:', event.error);
-                    if (event.error === 'not-allowed') {
-                        dispatch(addToast({
-                            message: 'Microphone permission denied. Please allow microphone in browser settings.',
-                            type: 'error'
-                        }));
-                        setIsListening(false);
-                    } else if (event.error === 'network') {
-                        console.log('Falling back to Groq Whisper AI due to network speech error...');
-                        startWhisperRecording();
-                    }
-                };
-
-                recognition.onend = () => {
-                    setIsListening(false);
-                };
-
-                recognitionRef.current = recognition;
-                recognition.start();
-                return;
-            } catch (recErr) {
-                console.warn('SpeechRecognition initialization error, switching to Whisper:', recErr);
-            }
-        }
-
-        // Fallback for browsers without SpeechRecognition
-        startWhisperRecording();
     };
 
     // Text-to-Speech (TTS) Reader for Assistant Messages
@@ -935,6 +1039,85 @@ export const ChatDashboard = () => {
                             </div>
                         )}
 
+                        {/* Microphone Settings & Live Diagnostic Card */}
+                        {showMicSettings && (
+                            <div className="p-3 m-2 rounded-xl bg-slate-900 border border-indigo-500/30 text-xs shadow-2xl space-y-2.5">
+                                <div className="flex items-center justify-between">
+                                    <span className="font-semibold text-slate-200 flex items-center gap-1.5">
+                                        <Sliders className="w-3.5 h-3.5 text-indigo-400" />
+                                        Microphone Settings & Hardware Test
+                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowMicSettings(false)}
+                                        className="text-slate-400 hover:text-white cursor-pointer"
+                                    >
+                                        <X className="w-3.5 h-3.5" />
+                                    </button>
+                                </div>
+
+                                {/* Device Picker */}
+                                <div>
+                                    <label className="block text-[11px] text-slate-400 mb-1">Select Active Microphone:</label>
+                                    <select
+                                        value={selectedMicId}
+                                        onChange={(e) => setSelectedMicId(e.target.value)}
+                                        className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-indigo-500 cursor-pointer"
+                                    >
+                                        {audioDevices.length === 0 && <option value="">Default System Microphone</option>}
+                                        {audioDevices.map((dev, idx) => (
+                                            <option key={dev.deviceId || idx} value={dev.deviceId}>
+                                                {dev.label || `Microphone ${idx + 1}`}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                {/* Live Volume Meter */}
+                                <div>
+                                    <div className="flex items-center justify-between text-[11px] mb-1">
+                                        <span className="text-slate-400">Live Input Volume:</span>
+                                        <span className={micVolume > 5 ? "text-emerald-400 font-semibold" : "text-amber-400 font-medium"}>
+                                            {micVolume > 5 ? `Active (${micVolume}%)` : `Silence (${micVolume}%)`}
+                                        </span>
+                                    </div>
+                                    <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden border border-slate-700">
+                                        <div
+                                            className={`h-full transition-all duration-75 ${
+                                                micVolume > 30 ? "bg-emerald-500" : micVolume > 10 ? "bg-teal-500" : "bg-indigo-500"
+                                            }`}
+                                            style={{ width: `${Math.min(100, micVolume * 2)}%` }}
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* 3s Test and Playback */}
+                                <div className="flex items-center justify-between pt-1">
+                                    <button
+                                        type="button"
+                                        onClick={runMicTest}
+                                        disabled={isTestingMic}
+                                        className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium text-[11px] flex items-center gap-1.5 cursor-pointer shadow-sm transition-all"
+                                    >
+                                        {isTestingMic ? (
+                                            <>
+                                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                                <span>Recording 3s Test... Speak now!</span>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Play className="w-3.5 h-3.5" />
+                                                <span>Test & Playback My Voice</span>
+                                            </>
+                                        )}
+                                    </button>
+                                    <span className="text-[10px] text-slate-400">
+                                        Records 3s & plays through speakers
+                                    </span>
+                                </div>
+                            </div>
+                        )}
+
                         {/* Prompt Input Textarea */}
                         <textarea
                             ref={inputRef}
@@ -1003,6 +1186,22 @@ export const ChatDashboard = () => {
                                             <span>Voice Input</span>
                                         </>
                                     )}
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        loadAudioDevices();
+                                        setShowMicSettings(!showMicSettings);
+                                    }}
+                                    className={`p-1.5 rounded-lg border text-xs transition-all cursor-pointer ${
+                                        showMicSettings
+                                            ? 'bg-indigo-600/30 text-indigo-300 border-indigo-500/40 shadow-sm'
+                                            : 'bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 hover:text-slate-200 border-white/[0.06]'
+                                    }`}
+                                    title="Microphone Settings & Hardware Test"
+                                >
+                                    <Sliders className="w-3.5 h-3.5" />
                                 </button>
                                 {uploadedDocs.length > 0 && (
                                     <span className="text-[11px] text-slate-500 hidden sm:inline">
