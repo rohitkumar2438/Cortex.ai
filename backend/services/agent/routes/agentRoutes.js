@@ -35,6 +35,8 @@ router.post('/transcribe', memoryUpload.single('audio'), async (req, res) => {
         formData.append('file', audioBlob, `speech.${extension}`);
         formData.append('model', 'whisper-large-v3-turbo');
         formData.append('temperature', '0');
+        // Prevent silence hallucination by setting acoustic prompt context
+        formData.append('prompt', 'A question, coding prompt, technical query, or conversation.');
 
         const groqRes = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
             method: 'POST',
@@ -51,7 +53,30 @@ router.post('/transcribe', memoryUpload.single('audio'), async (req, res) => {
 
         const data = await groqRes.json();
         const transcription = (data.text || '').trim();
-        console.log(`🎙️ [Whisper AI] Transcribed: "${transcription}"`);
+        console.log(`🎙️ [Whisper AI] Transcribed: "${transcription}" (audio size: ${req.file.size} bytes)`);
+
+        const clean = transcription.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
+        const SILENCE_CLEAN = [
+            'thank you',
+            'thank you so much',
+            'thank you very much',
+            'thank you for watching',
+            'thanks for watching',
+            'subtitles by',
+            'subtitles',
+            'bye',
+            'you',
+            ''
+        ];
+
+        if (!clean || SILENCE_CLEAN.includes(clean)) {
+            console.warn(`⚠️ [Whisper AI] Detected silence/empty audio (hallucination filtered: "${transcription}")`);
+            return res.json({
+                success: false,
+                text: '',
+                error: 'No clear speech detected. Please speak louder into your microphone.'
+            });
+        }
 
         res.json({
             success: true,

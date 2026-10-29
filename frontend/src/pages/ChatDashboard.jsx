@@ -120,10 +120,14 @@ export const ChatDashboard = () => {
     // Speech-to-Text (STT) Toggle Handler: MediaRecorder + Groq Whisper AI (100% Reliable) + WebSpeech Preview
     const toggleVoiceInput = async () => {
         if (isListening) {
-            // User requested STOP -> Stop recording and trigger Whisper transcription
+            // User requested STOP -> Flush remaining chunks and stop recording
             setIsListening(false);
             if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
                 try {
+                    // Flush buffer first before stopping
+                    if (typeof mediaRecorderRef.current.requestData === 'function') {
+                        mediaRecorderRef.current.requestData();
+                    }
                     mediaRecorderRef.current.stop();
                 } catch (e) {}
             }
@@ -132,10 +136,7 @@ export const ChatDashboard = () => {
                     recognitionRef.current.stop();
                 } catch (e) {}
             }
-            if (micStreamRef.current) {
-                micStreamRef.current.getTracks().forEach(track => track.stop());
-                micStreamRef.current = null;
-            }
+            // Note: mic tracks are stopped safely inside mediaRecorder.onstop to prevent truncating audio
             return;
         }
 
@@ -149,7 +150,13 @@ export const ChatDashboard = () => {
                 return;
             }
 
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: false, // Don't clip human speech
+                    autoGainControl: true    // Auto-boost microphone gain
+                }
+            });
             micStreamRef.current = stream;
             audioChunksRef.current = [];
 
@@ -173,6 +180,7 @@ export const ChatDashboard = () => {
                 const chunks = [...audioChunksRef.current];
                 audioChunksRef.current = [];
 
+                // Stop microphone tracks safely AFTER all data chunks have been emitted
                 if (micStreamRef.current) {
                     micStreamRef.current.getTracks().forEach(track => track.stop());
                     micStreamRef.current = null;
@@ -180,52 +188,67 @@ export const ChatDashboard = () => {
 
                 if (chunks.length > 0) {
                     const audioBlob = new Blob(chunks, { type: mimeType || 'audio/webm' });
-                    if (audioBlob.size > 1000) { // Valid audio slice recorded
-                        setIsTranscribingAudio(true);
+
+                    if (audioBlob.size < 3000) {
                         dispatch(addToast({
-                            message: '⚡ Transcribing audio with Groq Whisper AI...',
-                            type: 'info'
+                            message: '⚠️ Audio too short. Please speak for at least 1-2 seconds.',
+                            type: 'warning'
                         }));
+                        return;
+                    }
 
-                        try {
-                            const formData = new FormData();
-                            const extension = mimeType.includes('mp4') ? 'mp4' : 'webm';
-                            formData.append('audio', audioBlob, `speech.${extension}`);
+                    setIsTranscribingAudio(true);
+                    dispatch(addToast({
+                        message: '⚡ Transcribing audio with Groq Whisper AI...',
+                        type: 'info'
+                    }));
 
-                            const res = await fetch(`${API_BASE}/agent/transcribe`, {
-                                method: 'POST',
-                                headers: {
-                                    'x-user-id': user?.userId || ''
-                                },
-                                body: formData
-                            });
+                    try {
+                        const formData = new FormData();
+                        const extension = mimeType.includes('mp4') ? 'mp4' : 'webm';
+                        formData.append('audio', audioBlob, `speech.${extension}`);
 
-                            if (res.ok) {
-                                const data = await res.json();
-                                const transcribed = (data.text || '').trim();
-                                if (transcribed) {
-                                    setInputPrompt(transcribed);
-                                    dispatch(addToast({
-                                        message: `Transcribed: "${transcribed.substring(0, 40)}..."`,
-                                        type: 'success'
-                                    }));
-                                    // Auto-send query directly to Cortex AI!
-                                    handleSend(transcribed);
-                                    return;
-                                }
+                        const res = await fetch(`${API_BASE}/agent/transcribe`, {
+                            method: 'POST',
+                            headers: {
+                                'x-user-id': user?.userId || ''
+                            },
+                            body: formData
+                        });
+
+                        if (res.ok) {
+                            const data = await res.json();
+                            const transcribed = (data.text || '').trim();
+                            if (data.success && transcribed) {
+                                setInputPrompt(transcribed);
+                                dispatch(addToast({
+                                    message: `🎙️ "${transcribed.substring(0, 40)}${transcribed.length > 40 ? '...' : ''}"`,
+                                    type: 'success'
+                                }));
+                                // Auto-send query directly to Cortex AI!
+                                handleSend(transcribed);
+                                return;
+                            } else if (data.error) {
+                                dispatch(addToast({
+                                    message: data.error,
+                                    type: 'warning'
+                                }));
+                                return;
                             }
-                        } catch (whisperErr) {
-                            console.warn('Whisper API transcription warning:', whisperErr.message);
-                        } finally {
-                            setIsTranscribingAudio(false);
                         }
+                    } catch (whisperErr) {
+                        console.warn('Whisper API transcription warning:', whisperErr.message);
+                    } finally {
+                        setIsTranscribingAudio(false);
                     }
                 }
 
-                // Fallback: If WebSpeech transcribed something, use it
-                const fallbackText = latestTranscriptRef.current.trim();
-                if (fallbackText && !isStreaming) {
+                // Fallback: If WebSpeech transcribed something valid, use it
+                const fallbackText = (latestTranscriptRef.current || '').trim();
+                const fallbackClean = fallbackText.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
+                if (fallbackClean && !['thank you', 'you', 'bye'].includes(fallbackClean) && !isStreaming) {
                     latestTranscriptRef.current = '';
+                    setInputPrompt(fallbackText);
                     handleSend(fallbackText);
                 }
             };
@@ -926,18 +949,25 @@ export const ChatDashboard = () => {
                                 <button
                                     type="button"
                                     onClick={toggleVoiceInput}
-                                    disabled={isStreaming}
+                                    disabled={isStreaming || isTranscribingAudio}
                                     className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-all cursor-pointer ${
                                         isListening
                                             ? 'bg-rose-500/20 border-rose-500/40 text-rose-300 animate-pulse shadow-sm shadow-rose-500/20'
-                                            : 'bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 hover:text-white border-white/[0.06]'
+                                            : isTranscribingAudio
+                                                ? 'bg-amber-500/20 border-amber-500/40 text-amber-300'
+                                                : 'bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 hover:text-white border-white/[0.06]'
                                     }`}
-                                    title={isListening ? "Listening... Click to stop speaking" : "Speak your prompt (Speech-to-Text)"}
+                                    title={isListening ? "Listening... Click to stop speaking and transcribe" : isTranscribingAudio ? "Transcribing audio with Whisper..." : "Speak your prompt (Speech-to-Text)"}
                                 >
                                     {isListening ? (
                                         <>
                                             <MicOff className="w-3.5 h-3.5 text-rose-400" />
-                                            <span className="font-semibold text-rose-300">Listening...</span>
+                                            <span className="font-semibold text-rose-300">Listening (Click Stop)...</span>
+                                        </>
+                                    ) : isTranscribingAudio ? (
+                                        <>
+                                            <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                                            <span className="font-medium text-amber-300">Transcribing...</span>
                                         </>
                                     ) : (
                                         <>
