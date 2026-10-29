@@ -15,28 +15,46 @@ export const getModel = (agent = 'chat', options = {}) => {
     const openAIKey = process.env.OPENAI_API_KEY;
 
     switch (agent) {
-        case 'coding':
-            // Coding Agent: DeepSeek (Phase 5) with Groq fallback
-            if (deepseekKey) {
-                return new ChatOpenAI({
-                    modelName: "deepseek/deepseek-chat",
-                    openAIApiKey: deepseekKey,
-                    configuration: {
-                        baseURL: "https://openrouter.ai/api/v1"
-                    },
-                    temperature: 0.2,
-                    ...options
-                });
-            }
-            if (groqKey) {
-                return new ChatGroq({
+        case 'coding': {
+            // Coding Agent: DeepSeek (Phase 5) with automatic Groq fallback on 401/402/timeout
+            const groqFallback = groqKey
+                ? new ChatGroq({
                     apiKey: groqKey,
                     model: "qwen/qwen3.8-27b",
                     temperature: 0.2,
+                    maxRetries: 2,
+                    ...options
+                })
+                : null;
+
+            if (deepseekKey) {
+                // Auto-detect OpenRouter vs official api.deepseek.com
+                const isOpenRouter = Boolean(process.env.OPENROUTER_API_KEY) || deepseekKey.startsWith('sk-or-');
+                const baseURL = isOpenRouter ? "https://openrouter.ai/api/v1" : "https://api.deepseek.com";
+                const modelName = isOpenRouter ? "deepseek/deepseek-chat" : "deepseek-chat";
+
+                const primary = new ChatOpenAI({
+                    modelName,
+                    apiKey: deepseekKey,
+                    configuration: {
+                        baseURL
+                    },
+                    temperature: 0.2,
+                    maxRetries: 1,
                     ...options
                 });
+
+                if (groqFallback) {
+                    return primary.withFallbacks([groqFallback]);
+                }
+                return primary;
+            }
+
+            if (groqFallback) {
+                return groqFallback;
             }
             break;
+        }
 
         case 'image':
             // Image / Vision Agent: Gemini 2.5 / 1.5 Flash
