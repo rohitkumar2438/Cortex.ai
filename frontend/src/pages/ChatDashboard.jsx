@@ -279,6 +279,42 @@ export const ChatDashboard = () => {
         }
     };
 
+    // Export Chat History to Markdown File
+    const handleExportChat = () => {
+        if (!messages || messages.length === 0) {
+            dispatch(addToast({ message: 'No messages to export.', type: 'info' }));
+            return;
+        }
+
+        const activeTitle = conversations.find(c => (c._id || c.id) === activeConversationId)?.title || 'Cortex_Chat_Session';
+        const formattedDate = new Date().toLocaleDateString();
+
+        let mdContent = `# ${activeTitle}\n*Exported from Cortex AI on ${formattedDate}*\n\n---\n\n`;
+
+        messages.forEach((msg) => {
+            const roleName = msg.role === 'user' ? '👤 User' : `🤖 Assistant (${msg.agent ? msg.agent.toUpperCase() : 'CORTEX'})`;
+            mdContent += `### ${roleName}\n\n${msg.content || ''}\n\n`;
+
+            if (msg.ragSources && msg.ragSources.length > 0) {
+                const uniqueDocs = [...new Set(msg.ragSources.map(s => s.docName))];
+                mdContent += `*Cited Sources:* ${uniqueDocs.join(', ')}\n\n`;
+            }
+            mdContent += `---\n\n`;
+        });
+
+        const blob = new Blob([mdContent], { type: 'text/markdown;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${activeTitle.replace(/[^a-zA-Z0-9_-]/g, '_')}_export.md`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+
+        dispatch(addToast({ message: 'Conversation exported as Markdown file.', type: 'success' }));
+    };
+
     // Helper to detect download link from content if not explicitly in msg.url
     const getDownloadInfo = (msg) => {
         let url = msg.url;
@@ -327,6 +363,16 @@ export const ChatDashboard = () => {
                             <span className="font-semibold text-sm text-white truncate max-w-[200px] sm:max-w-md">
                                 {conversations.find(c => (c._id || c.id) === activeConversationId)?.title || 'New Session'}
                             </span>
+                            {messages.length > 0 && (
+                                <button
+                                    onClick={handleExportChat}
+                                    className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-900/80 hover:bg-slate-800 border border-indigo-950 text-slate-300 hover:text-white text-xs transition-colors cursor-pointer"
+                                    title="Export conversation history to Markdown"
+                                >
+                                    <Download className="w-3.5 h-3.5 text-indigo-400" />
+                                    <span>Export Chat</span>
+                                </button>
+                            )}
                         </div>
                     </div>
 

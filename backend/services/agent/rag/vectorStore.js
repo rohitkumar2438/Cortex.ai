@@ -7,7 +7,13 @@ import { Pinecone } from '@pinecone-database/pinecone';
 import fs from 'fs';
 import path from 'path';
 
-const CACHE_FILE = path.resolve(process.cwd(), 'vector_cache.json');
+const uploadsDir = path.resolve(process.cwd(), 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+    try { fs.mkdirSync(uploadsDir, { recursive: true }); } catch (_) {}
+}
+const CACHE_FILE = fs.existsSync(uploadsDir)
+    ? path.resolve(uploadsDir, 'vector_cache.json')
+    : path.resolve(process.cwd(), 'vector_cache.json');
 
 // In-Memory Vector Store for dev, tests, or when PINECONE_API_KEY is not set
 class InMemoryVectorStore {
@@ -18,10 +24,15 @@ class InMemoryVectorStore {
 
     loadCache() {
         try {
-            if (fs.existsSync(CACHE_FILE)) {
-                const data = fs.readFileSync(CACHE_FILE, 'utf-8');
+            // Check primary uploads cache location, then fallback to cwd
+            const primaryPath = CACHE_FILE;
+            const fallbackPath = path.resolve(process.cwd(), 'vector_cache.json');
+            const targetPath = fs.existsSync(primaryPath) ? primaryPath : fs.existsSync(fallbackPath) ? fallbackPath : null;
+
+            if (targetPath) {
+                const data = fs.readFileSync(targetPath, 'utf-8');
                 this.records = JSON.parse(data) || [];
-                console.log(`📂 Loaded ${this.records.length} records from local vector cache.`);
+                console.log(`📂 Loaded ${this.records.length} records from persistent vector cache at: ${targetPath}`);
             }
         } catch (err) {
             console.warn('⚠️ Could not load vector cache:', err.message);

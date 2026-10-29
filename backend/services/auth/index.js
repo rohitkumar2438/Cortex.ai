@@ -25,7 +25,11 @@ app.use(morgan('dev'));
 app.use(express.json());
 app.use(cookieParser());
 
-// Base status route
+// Base status & health routes
+app.get('/health', (req, res) => {
+    res.json({ service: 'Auth Service', status: 'UP', port: PORT });
+});
+
 app.get('/', (req, res) => {
     res.json({ service: 'Auth Service', status: 'Running', port: PORT });
 });

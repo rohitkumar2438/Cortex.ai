@@ -28,6 +28,14 @@ app.use(helmet({
     crossOriginResourcePolicy: { policy: 'cross-origin' }
 }));
 
+// Request Correlation ID Middleware (Industry standard for microservice tracing)
+app.use((req, res, next) => {
+    const requestId = req.headers['x-request-id'] || `req_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    req.requestId = requestId;
+    res.setHeader('x-request-id', requestId);
+    next();
+});
+
 // 2. Rate Limiting Middleware
 const limiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
@@ -100,7 +108,7 @@ app.use('/chat', proxy(CHAT_SERVICE_URL, createProxyOptions()));
 app.use('/agent', proxy(AGENT_SERVICE_URL, createProxyOptions({ parseReqBody: false })));
 app.use('/billing', proxy(BILLING_SERVICE_URL, createProxyOptions()));
 
-// 7. Gateway Health and Info
+// 7. Gateway Health and System Observability
 app.get('/health', (req, res) => {
     res.json({
         service: 'Cortex AI Gateway',
@@ -110,8 +118,98 @@ app.get('/health', (req, res) => {
     });
 });
 
+// Centralized Multi-Microservice Observability Aggregator
+app.get('/health/all', async (req, res) => {
+    const services = [
+        { name: 'auth', url: `${AUTH_SERVICE_URL}/health` },
+        { name: 'chat', url: `${CHAT_SERVICE_URL}/health` },
+        { name: 'agent', url: `${AGENT_SERVICE_URL}/health` },
+        { name: 'billing', url: `${BILLING_SERVICE_URL}/health` }
+    ];
+
+    const checkService = async ({ name, url }) => {
+        const start = Date.now();
+        try {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 2500);
+            const response = await fetch(url, { signal: controller.signal });
+            clearTimeout(timeout);
+            const latency = `${Date.now() - start}ms`;
+            if (response.ok) {
+                const data = await response.json().catch(() => ({}));
+                return { name, status: 'UP', latency, details: data };
+            }
+            return { name, status: 'DEGRADED', latency, httpStatus: response.status };
+        } catch (err) {
+            return { name, status: 'DOWN', latency: `${Date.now() - start}ms`, error: err.message };
+        }
+    };
+
+    const results = await Promise.all(services.map(checkService));
+    const allUp = results.every(s => s.status === 'UP');
+
+    res.status(allUp ? 200 : 207).json({
+        systemStatus: allUp ? 'ALL_SYSTEMS_OPERATIONAL' : 'PARTIALLY_DEGRADED',
+        gateway: {
+            status: 'UP',
+            port: PORT,
+            uptimeSeconds: Math.floor(process.uptime()),
+            memoryUsageMB: Math.round(process.memoryUsage().heapUsed / 1024 / 1024)
+        },
+        services: results.reduce((acc, s) => {
+            acc[s.name] = s;
+            return acc;
+        }, {}),
+        timestamp: new Date().toISOString()
+    });
+});
+
+// API Routes Catalog for Enterprise Documentation
+app.get('/api/catalog', (req, res) => {
+    res.json({
+        platform: 'Cortex AI Multi-Agent Platform',
+        version: '1.0.0',
+        architecture: 'Microservices with API Gateway & LangGraph',
+        endpoints: {
+            auth: {
+                login: 'POST /auth/login (Firebase ID Token verification)',
+                profile: 'GET /auth/profile',
+                logout: 'POST /auth/logout'
+            },
+            chat: {
+                conversations: 'GET /chat/conversations',
+                createConversation: 'POST /chat/conversations',
+                messages: 'GET /chat/conversations/:id/messages',
+                sendMessage: 'POST /chat/conversations/:id/messages'
+            },
+            agent: {
+                run: 'POST /agent/run (Synchronous multi-agent execution)',
+                stream: 'POST /agent/stream (SSE streaming Thinking -> Reasoning -> Generating)',
+                ragUpload: 'POST /agent/rag/upload (PDF/TXT knowledge ingestion)',
+                ragDocuments: 'GET /agent/rag/documents (List indexed documents)',
+                ragDelete: 'DELETE /agent/rag/documents/:docName'
+            },
+            billing: {
+                status: 'GET /billing/status (Active user credits)',
+                order: 'POST /billing/order (Razorpay order creation for packs)',
+                verify: 'POST /billing/verify (Payment signature verification)'
+            },
+            system: {
+                health: 'GET /health',
+                healthAll: 'GET /health/all (Aggregated microservice observability)',
+                catalog: 'GET /api/catalog'
+            }
+        }
+    });
+});
+
 app.get('/', (req, res) => {
-    res.json({ message: 'Hello from Cortex AI Gateway', version: '1.0.0' });
+    res.json({
+        message: 'Hello from Cortex AI Gateway',
+        version: '1.0.0',
+        docs: '/api/catalog',
+        health: '/health/all'
+    });
 });
 
 // Centralized error handling
