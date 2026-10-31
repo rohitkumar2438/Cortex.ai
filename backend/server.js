@@ -19,12 +19,27 @@ import billingRoutes from './services/billing/routes/billingRoutes.js';
 
 dotenv.config();
 
+console.log('🚀 [Cortex Production] Initializing services...');
+
 // Initialize DB and Redis (with automatic in-memory fallback)
-connectDB(process.env.MONGO_URI, 'Unified Server');
-initRedis();
+try {
+    if (process.env.MONGO_URI) {
+        connectDB(process.env.MONGO_URI, 'Unified Server');
+    } else {
+        console.warn('⚠️ No MONGO_URI provided. Server will run with in-memory auth.');
+    }
+} catch (e) {
+    console.warn('⚠️ MongoDB connection deferred:', e.message);
+}
+
+try {
+    initRedis();
+} catch (e) {
+    console.warn('⚠️ Redis connection deferred:', e.message);
+}
 
 const app = express();
-const PORT = process.env.PORT || 8000;
+const PORT = process.env.PORT || 10000;
 const CLIENT_URL = process.env.CLIENT_URL || 'https://cortex-ai-roan.vercel.app';
 
 // Security Headers
