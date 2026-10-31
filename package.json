@@ -4,13 +4,25 @@
   "description": "Root workspace to start all services",
   "type": "module",
   "scripts": {
+    "start": "node backend/server.js",
     "dev": "concurrently -n \"front,gate,auth,chat,bill,agent\" -c \"bgBlue,bgGreen,bgMagenta,bgCyan,bgYellow,bgWhite\" \"npm run dev --prefix frontend\" \"npm run dev --prefix backend/gateway\" \"npm run dev --prefix backend/services/auth\" \"npm run dev --prefix backend/services/chat\" \"npm run dev --prefix backend/services/billing\" \"npm run dev --prefix backend/services/agent\""
   },
   "devDependencies": {
     "concurrently": "^8.2.2"
   },
   "dependencies": {
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "firebase-admin": "^14.3.0",
+    "form-data": "^4.0.5",
+    "helmet": "^8.3.0",
     "mongoose": "^9.11.4",
+    "morgan": "^1.12.1",
+    "multer": "^2.1.1",
+    "pdf-parse": "^2.4.5",
+    "razorpay": "^2.9.6",
     "redis": "^6.3.0"
   }
 }
