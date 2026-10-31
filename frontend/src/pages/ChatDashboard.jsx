@@ -43,7 +43,7 @@ import {
     Sliders
 } from 'lucide-react';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_BASE = import.meta.env.VITE_API_URL || 'https://cortex-backend-s1mw.onrender.com';
 
 export const ChatDashboard = () => {
     const dispatch = useDispatch();

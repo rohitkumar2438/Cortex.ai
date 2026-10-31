@@ -4,7 +4,7 @@ import { updateUserCredits } from '../store/slices/authSlice.js';
 import { addToast } from '../store/slices/uiSlice.js';
 import { Check, Zap, Sparkles, X, ShieldCheck, Coins } from 'lucide-react';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_BASE = import.meta.env.VITE_API_URL || 'https://cortex-backend-s1mw.onrender.com';
 
 const CREDIT_PACKS = [
     {
