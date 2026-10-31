@@ -108,6 +108,9 @@ app.get('/health', (req, res) => {
 app.use('/auth', authRoutes);
 app.use('/conversations', conversationRoutes);
 app.use('/messages', messageRoutes);
+app.use('/chat/conversations', conversationRoutes);
+app.use('/chat/messages', messageRoutes);
+app.use('/chat', conversationRoutes);
 app.use('/agent', agentRoutes);
 app.use('/billing', billingRoutes);
 
