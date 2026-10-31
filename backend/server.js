@@ -6,16 +6,16 @@ import cookieParser from 'cookie-parser';
 import morgan from 'morgan';
 
 // 1. Shared Utilities & Redis
-import { initRedis, getSession } from '../shared/redisClient.js';
-import { COOKIE_NAME } from '../shared/constants.js';
-import connectDB from '../shared/db.js';
+import { initRedis, getSession } from './shared/redisClient.js';
+import { COOKIE_NAME } from './shared/constants.js';
+import connectDB from './shared/db.js';
 
 // 2. Microservice Route Handlers
-import authRoutes from '../services/auth/routes/authRoutes.js';
-import conversationRoutes from '../services/chat/routes/conversationRoutes.js';
-import messageRoutes from '../services/chat/routes/messageRoutes.js';
-import agentRoutes from '../services/agent/routes/agentRoutes.js';
-import billingRoutes from '../services/billing/routes/billingRoutes.js';
+import authRoutes from './services/auth/routes/authRoutes.js';
+import conversationRoutes from './services/chat/routes/conversationRoutes.js';
+import messageRoutes from './services/chat/routes/messageRoutes.js';
+import agentRoutes from './services/agent/routes/agentRoutes.js';
+import billingRoutes from './services/billing/routes/billingRoutes.js';
 
 dotenv.config();
 
@@ -109,3 +109,4 @@ app.listen(PORT, () => {
 });
 
 export default app;
+
