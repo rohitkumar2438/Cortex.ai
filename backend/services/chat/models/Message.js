@@ -63,6 +63,6 @@ messageSchema.virtual('id').get(function () {
     return this._id.toHexString();
 });
 
-const Message = mongoose.model('Message', messageSchema);
+const Message = mongoose.models.Message || mongoose.model('Message', messageSchema);
 export default Message;
 

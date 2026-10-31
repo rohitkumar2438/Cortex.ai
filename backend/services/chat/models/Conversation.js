@@ -25,6 +25,6 @@ conversationSchema.virtual('id').get(function () {
     return this._id.toHexString();
 });
 
-const Conversation = mongoose.model('Conversation', conversationSchema);
+const Conversation = mongoose.models.Conversation || mongoose.model('Conversation', conversationSchema);
 export default Conversation;
 

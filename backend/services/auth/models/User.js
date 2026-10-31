@@ -49,5 +49,5 @@ userSchema.virtual('picture').get(function () {
     return this.avatar;
 });
 
-const User = mongoose.model('User', userSchema);
+const User = mongoose.models.User || mongoose.model('User', userSchema);
 export default User;

@@ -62,6 +62,6 @@ transactionSchema.virtual('id').get(function () {
     return this._id.toHexString();
 });
 
-const Transaction = mongoose.model('Transaction', transactionSchema);
+const Transaction = mongoose.models.Transaction || mongoose.model('Transaction', transactionSchema);
 export default Transaction;
 
